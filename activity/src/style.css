@@ -3076,3 +3076,18 @@ html[data-discord-layout="focused"]
   object-position: center top !important;
 }
 
+
+/* =========================================================
+   RESTORE CONSISTENT MARKETPLACE IMAGE GEOMETRY
+   ========================================================= */
+
+.product-image-wrap,
+html[data-discord-layout="focused"] .product-image-wrap {
+  aspect-ratio: 16 / 10 !important;
+}
+
+.product-image {
+  object-fit: cover !important;
+  object-position: center center !important;
+}
+
