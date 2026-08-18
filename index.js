@@ -317,47 +317,121 @@ function productMedia(product, prefix = "product") {
 }
 
 /* =========================================================
-   CREATOR UI — HOME
+   CREATOR UI V4 — 2026 COMPONENTS
 ========================================================= */
 
-function categoryRow(selected = "all") {
-  const names = [
-    "All",
-    "Fashion",
-    "Food",
-    "Sports",
-    "Home",
-  ];
+const CREATOR_PAGE_SIZE = 3;
 
-  return new ActionRowBuilder().addComponents(
-    ...names.map((name) =>
-      new ButtonBuilder()
-        .setCustomId(
-          `category:${name.toLowerCase()}`
-        )
-        .setLabel(name)
-        .setStyle(
-          selected === name.toLowerCase()
-            ? ButtonStyle.Primary
-            : ButtonStyle.Secondary
-        )
-    )
+const CREATOR_CATEGORIES = [
+  ["All", "all", "🛍️"],
+  ["Fashion", "fashion", "👗"],
+  ["Food", "food", "🍴"],
+  ["Sports", "sports", "🏀"],
+  ["Home", "home", "🏠"],
+  ["Beauty", "beauty", "✨"],
+  ["Tech", "tech", "💻"],
+  ["Other", "other", "📦"],
+];
+
+function creatorSpacer(lines = 3) {
+  return new TextDisplayBuilder().setContent(
+    Array(lines).fill("\u200B").join("\n")
   );
 }
 
-function buildHome(category = "all") {
-  const allMatching =
-    activeProducts(category);
+function safeDealValue(value, fallback = "—") {
+  if (
+    value === null ||
+    value === undefined ||
+    String(value).trim() === "" ||
+    String(value).trim().toLowerCase() === "null" ||
+    String(value).trim().toLowerCase() === "undefined"
+  ) {
+    return fallback;
+  }
 
-  /*
-   * FIXED UI HEIGHT:
-   * Always render exactly 5 product rows.
-   * Empty slots become quiet placeholders so changing
-   * categories does not collapse the entire bot surface.
-   */
-  const products =
-    allMatching.slice(0, 5);
+  return String(value).trim();
+}
 
+function shorten(value, max = 240) {
+  const clean = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!clean) {
+    return "No description has been added yet.";
+  }
+
+  if (clean.length <= max) {
+    return clean;
+  }
+
+  return clean.slice(0, max - 1).trimEnd() + "…";
+}
+
+function creatorCategorySelect(selected = "all") {
+  return new StringSelectMenuBuilder()
+    .setCustomId("deals:category")
+    .setPlaceholder("Choose a category")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .setOptions(
+      ...CREATOR_CATEGORIES.map(
+        ([label, value, emoji]) => ({
+          label,
+          value,
+          emoji,
+          default: selected === value,
+        })
+      )
+    );
+}
+
+function creatorProductSelect(products) {
+  return new StringSelectMenuBuilder()
+    .setCustomId("deals:view")
+    .setPlaceholder("Select Product")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .setOptions(
+      ...products.map((product) => ({
+        label: product.name.slice(0, 100),
+        description: [
+          product.brand,
+          `${product.commission} commission`,
+          safeDealValue(product.shop_ads, "No Shop Ads"),
+        ]
+          .join(" • ")
+          .slice(0, 100),
+        value: String(product.id),
+      }))
+    );
+}
+
+function creatorProductLine(product) {
+  const shopAds = safeDealValue(
+    product.shop_ads,
+    "—"
+  );
+
+  const secondary =
+    shopAds !== "—"
+      ? `💰 **${product.commission}**   🚀 **${shopAds} Ads**`
+      : `💰 **${product.commission} Commission**`;
+
+  return [
+    `### ${product.name}`,
+    `-# ${product.brand} • ${product.category}`,
+    secondary,
+  ].join("\n");
+}
+
+
+/* =========================================================
+   HOME
+========================================================= */
+
+function buildHome() {
   const container =
     new ContainerBuilder()
       .setAccentColor(0x5865f2)
@@ -365,124 +439,56 @@ function buildHome(category = "all") {
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
           [
-            "## Find products to promote",
-            "Explore deals from top brands and earn commissions.",
+            "## Creator Deals",
+            "Discover products, request samples, and manage your creator profile.",
+            "",
+            "-# Browse active brand partnerships in the Creator Deals app."
           ].join("\n")
         )
       )
 
       .addActionRowComponents(
-        categoryRow(category)
-      );
+        new ActionRowBuilder().addComponents(
 
-  /*
-   * Second category row is ALWAYS present so the top
-   * portion of the UI never changes height.
-   */
-  container.addActionRowComponents(
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId("category:beauty")
-        .setLabel("Beauty")
-        .setStyle(
-          category === "beauty"
-            ? ButtonStyle.Primary
-            : ButtonStyle.Secondary
+          new ButtonBuilder()
+            .setCustomId("deals:launch")
+            .setLabel("Open Creator Deals")
+            .setStyle(ButtonStyle.Primary)
         )
-    )
-  );
-
-  container.addSeparatorComponents(
-    new SeparatorBuilder()
-      .setSpacing(
-        SeparatorSpacingSize.Small
-      )
-      .setDivider(true)
-  );
-
-  /*
-   * Five permanent product slots.
-   */
-  for (let i = 0; i < 5; i++) {
-    const product = products[i];
-
-    if (product) {
-      container.addSectionComponents(
-        new SectionBuilder()
-
-          .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(
-              [
-                `**${product.name}**`,
-                `💰 **${product.commission} Commission**  •  📦 **Auto-Approved**`,
-              ].join("\n")
-            )
-          )
-
-          .setButtonAccessory(
-            new ButtonBuilder()
-              .setCustomId(
-                `product:${product.id}`
-              )
-              .setLabel("View")
-              .setStyle(
-                ButtonStyle.Secondary
-              )
-          )
       );
-    } else {
-      /*
-       * Quiet placeholder matching approximately the
-       * same vertical footprint as a real product row.
-       */
-      container.addSectionComponents(
-        new SectionBuilder()
 
-          .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(
-              "\u200B\n\u200B"
-            )
-          )
-
-          .setButtonAccessory(
-            new ButtonBuilder()
-              .setCustomId(
-                `empty:${i}`
-              )
-              .setLabel("—")
-              .setStyle(
-                ButtonStyle.Secondary
-              )
-              .setDisabled(true)
-          )
-      );
+  return v2(
+    [container],
+    {
+      attachments: []
     }
-  }
-
-  container.addSeparatorComponents(
-    new SeparatorBuilder()
-      .setSpacing(
-        SeparatorSpacingSize.Small
-      )
-      .setDivider(true)
   );
-
-  container.addTextDisplayComponents(
-    new TextDisplayBuilder().setContent(
-      "**Page 1**"
-    )
-  );
-
-  return v2([container]);
 }
 
 /* =========================================================
-   CREATOR UI — PRODUCT DETAILS
+   PRODUCT DETAILS
 ========================================================= */
 
 function buildProductDetails(product) {
-  const media =
-    productMedia(product, "detail");
+  const media = productMedia(
+    product,
+    "detail"
+  );
+
+  const commission = safeDealValue(
+    product.commission,
+    "—"
+  );
+
+  const shopAds = safeDealValue(
+    product.shop_ads,
+    "—"
+  );
+
+  const website = safeDealValue(
+    product.brand_website,
+    "—"
+  );
 
   const container =
     new ContainerBuilder()
@@ -490,98 +496,110 @@ function buildProductDetails(product) {
 
       .addActionRowComponents(
         new ActionRowBuilder().addComponents(
+
           new ButtonBuilder()
-            .setCustomId(
-              "deals:home"
-            )
-            .setLabel(
-              "← Back to Home"
-            )
-            .setStyle(
-              ButtonStyle.Secondary
-            )
+            .setCustomId("deals:home")
+            .setLabel("← Back to Deals")
+            .setStyle(ButtonStyle.Secondary)
         )
       )
 
-      .addMediaGalleryComponents(
-        new MediaGalleryBuilder({
-          items: [
-            {
-              description:
-                product.name,
+      .addSectionComponents(
+        new SectionBuilder()
 
-              media: {
-                url: media.url,
-              },
-            },
-          ],
-        })
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+              [
+                `## ${product.name}`,
+                `**${product.brand}**`,
+                `-# ${product.category}`,
+                "",
+                `💰 **Commission:** ${commission}`,
+                `🚀 **Shop Ads:** ${shopAds}`,
+                "📦 **Free Sample:** Auto-Approved",
+              ].join("\n")
+            )
+          )
+
+          .setThumbnailAccessory(
+            new ThumbnailBuilder()
+              .setURL(media.url)
+              .setDescription(product.name)
+          )
+      )
+
+      .addSeparatorComponents(
+        new SeparatorBuilder()
+          .setSpacing(
+            SeparatorSpacingSize.Small
+          )
+          .setDivider(true)
       )
 
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
           [
-            `## ${product.name}`,
-            `by **${product.brand}**`,
+            "### Description",
+            shorten(product.description, 320),
             "",
-            `💰 **Commission:** ${product.commission}`,
-            `🚀 **Shop Ads:** ${product.shop_ads}`,
-            `📦 **Free Sample:** Auto-Approved`,
-            `⭐ **Requirements:** 1 TikTok Shoppable Video`,
-            `🌐 **Brand Website:** ${product.brand_website || "—"}`,
+            "### ⭐ Creator Requirement",
+            "1 TikTok Shoppable Video",
           ].join("\n")
         )
+      )
+
+      .addTextDisplayComponents(
+        creatorSpacer(3)
       );
 
-  const buttons = [
+  const actions = [
     new ButtonBuilder()
       .setCustomId(
         `request:${product.id}`
       )
-      .setLabel(
-        "Request Product"
-      )
-      .setStyle(
-        ButtonStyle.Primary
-      ),
+      .setLabel("Request Product")
+      .setStyle(ButtonStyle.Primary),
   ];
 
-  if (product.brand_website) {
-    buttons.push(
+  if (website !== "—") {
+    actions.push(
       new ButtonBuilder()
-        .setLabel(
-          "Brand Website"
-        )
-        .setURL(
-          product.brand_website
-        )
-        .setStyle(
-          ButtonStyle.Link
-        )
+        .setLabel("Brand Website")
+        .setURL(website)
+        .setStyle(ButtonStyle.Link)
     );
   }
 
   container.addActionRowComponents(
     new ActionRowBuilder()
-      .addComponents(...buttons)
+      .addComponents(...actions)
   );
 
   return v2(
     [container],
     {
       files: media.files,
+      attachments: [],
     }
   );
 }
 
+
 /* =========================================================
-   CREATOR UI — CONFIRM
+   CONFIRM
 ========================================================= */
 
-function buildConfirm(
-  product,
-  handle
-) {
+function buildConfirm(product, handle) {
+  const media = productMedia(
+    product,
+    "confirm"
+  );
+
+  const shopAds = safeDealValue(
+    product.shop_ads,
+    "—"
+  );
+
   const container =
     new ContainerBuilder()
       .setAccentColor(0x5865f2)
@@ -589,91 +607,172 @@ function buildConfirm(
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
           [
-            "## Confirm Your Request",
-            "",
-            `**${product.name}**`,
-            `by ${product.brand}`,
-            "",
-            `💰 ${product.commission} Commission`,
-            `📦 Auto-Approved`,
-            "",
-            "**TikTok Username**",
-            handle,
-            "",
-            "🔒 By requesting this product, you agree to the deal requirements.",
+            "## Confirm Request",
+            "-# Review the deal before submitting.",
           ].join("\n")
         )
       )
 
-      .addActionRowComponents(
-        new ActionRowBuilder()
-          .addComponents(
+      .addSectionComponents(
+        new SectionBuilder()
 
-            new ButtonBuilder()
-              .setCustomId(
-                "deals:home"
-              )
-              .setLabel("Cancel")
-              .setStyle(
-                ButtonStyle.Secondary
-              ),
-
-            new ButtonBuilder()
-              .setCustomId(
-                `confirm:${product.id}`
-              )
-              .setLabel(
-                "Confirm Request"
-              )
-              .setStyle(
-                ButtonStyle.Primary
-              )
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+              [
+                `### ${product.name}`,
+                `**${product.brand}**`,
+                "",
+                `💰 **${product.commission} Commission**`,
+                `🚀 **Shop Ads:** ${shopAds}`,
+                "📦 **Free Sample:** Auto-Approved",
+              ].join("\n")
+            )
           )
+
+          .setThumbnailAccessory(
+            new ThumbnailBuilder()
+              .setURL(media.url)
+              .setDescription(product.name)
+          )
+      )
+
+      .addSeparatorComponents(
+        new SeparatorBuilder()
+          .setSpacing(
+            SeparatorSpacingSize.Small
+          )
+          .setDivider(true)
+      )
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          [
+            "### Request Information",
+            `✓ TikTok: **${handle}**`,
+            "⭐ 1 TikTok Shoppable Video",
+            "",
+            "-# By confirming, you agree to complete the listed creator requirement.",
+          ].join("\n")
+        )
+      )
+
+      .addTextDisplayComponents(
+        creatorSpacer(4)
+      )
+
+      .addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+
+          new ButtonBuilder()
+            .setCustomId(
+              `product:${product.id}`
+            )
+            .setLabel("Back")
+            .setStyle(ButtonStyle.Secondary),
+
+          new ButtonBuilder()
+            .setCustomId(
+              `confirm:${product.id}`
+            )
+            .setLabel("Confirm Request")
+            .setStyle(ButtonStyle.Success)
+        )
       );
 
-  return v2([container]);
+  return v2(
+    [container],
+    {
+      files: media.files,
+      attachments: [],
+    }
+  );
 }
 
+
 /* =========================================================
-   CREATOR UI — SUBMITTED
+   SUBMITTED
 ========================================================= */
 
 function buildSubmitted(product) {
-  return v2([
+  const media = productMedia(
+    product,
+    "submitted"
+  );
+
+  const container =
     new ContainerBuilder()
       .setAccentColor(0x23a559)
 
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
           [
-            "# ✅",
-            "## Request Submitted!",
-            `Your request for **${product.name}** has been submitted.`,
-            "",
-            "### What happens next?",
-            "• The brand will review your request",
-            "• You'll be notified of their decision",
-            "• If approved, your product will ship soon",
+            "## ✅ Request Submitted",
+            "-# Your product request has been received.",
           ].join("\n")
         )
       )
 
-      .addActionRowComponents(
-        new ActionRowBuilder()
-          .addComponents(
-            new ButtonBuilder()
-              .setCustomId(
-                "deals:home"
-              )
-              .setLabel(
-                "Back to Home"
-              )
-              .setStyle(
-                ButtonStyle.Primary
-              )
+      .addSectionComponents(
+        new SectionBuilder()
+
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+              [
+                `### ${product.name}`,
+                `**${product.brand}**`,
+                "",
+                "🟢 **Request sent successfully**",
+              ].join("\n")
+            )
           )
-      ),
-  ]);
+
+          .setThumbnailAccessory(
+            new ThumbnailBuilder()
+              .setURL(media.url)
+              .setDescription(product.name)
+          )
+      )
+
+      .addSeparatorComponents(
+        new SeparatorBuilder()
+          .setSpacing(
+            SeparatorSpacingSize.Small
+          )
+          .setDivider(true)
+      )
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          [
+            "### What happens next?",
+            "1. The brand reviews your request.",
+            "2. You'll be notified when a decision is made.",
+            "3. If approved, the product will be sent to you.",
+          ].join("\n")
+        )
+      )
+
+      .addTextDisplayComponents(
+        creatorSpacer(5)
+      )
+
+      .addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+
+          new ButtonBuilder()
+            .setCustomId("deals:home")
+            .setLabel("Back to Deals")
+            .setStyle(ButtonStyle.Primary)
+        )
+      );
+
+  return v2(
+    [container],
+    {
+      files: media.files,
+      attachments: [],
+    }
+  );
 }
 
 /* =========================================================
@@ -976,31 +1075,50 @@ function buildAdminDashboard() {
    Includes native Discord image upload.
 ========================================================= */
 
+function adminCategoryMenu(current = null) {
+  const categories = [
+    ["Fashion", "Fashion", "👗"],
+    ["Food", "Food", "🍴"],
+    ["Sports", "Sports", "🏀"],
+    ["Home", "Home", "🏠"],
+    ["Beauty", "Beauty", "✨"],
+    ["Tech", "Tech", "💻"],
+    ["Other", "Other", "📦"],
+  ];
+
+  return new StringSelectMenuBuilder()
+    .setCustomId("category")
+    .setPlaceholder("Choose product category")
+    .setRequired(true)
+    .setMinValues(1)
+    .setMaxValues(1)
+    .setOptions(
+      ...categories.map(
+        ([label, value, emoji]) => ({
+          label,
+          value,
+          emoji,
+          default: current === value,
+        })
+      )
+    );
+}
+
 function addProductModal() {
   return new ModalBuilder()
-
-    .setCustomId(
-      "admin:add-core"
-    )
-
-    .setTitle(
-      "Add Product — Step 1 of 2"
-    )
+    .setCustomId("admin:add-core")
+    .setTitle("Add Product")
 
     .addLabelComponents(
 
       new LabelBuilder()
-        .setLabel(
-          "Product Name"
-        )
+        .setLabel("Product Name")
         .setTextInputComponent(
           new TextInputBuilder()
             .setCustomId("name")
-            .setStyle(
-              TextInputStyle.Short
-            )
+            .setStyle(TextInputStyle.Short)
             .setPlaceholder(
-              "FlowFit Activewear Set"
+              "4 Pack Sampler"
             )
             .setRequired(true)
             .setMaxLength(100)
@@ -1011,11 +1129,9 @@ function addProductModal() {
         .setTextInputComponent(
           new TextInputBuilder()
             .setCustomId("brand")
-            .setStyle(
-              TextInputStyle.Short
-            )
+            .setStyle(TextInputStyle.Short)
             .setPlaceholder(
-              "FlowFit"
+              "Brand Name"
             )
             .setRequired(true)
             .setMaxLength(100)
@@ -1024,53 +1140,21 @@ function addProductModal() {
       new LabelBuilder()
         .setLabel("Category")
         .setDescription(
-          "Fashion, Food, Sports, Home, Beauty, etc."
+          "Where this product appears in Creator Deals"
         )
-        .setTextInputComponent(
-          new TextInputBuilder()
-            .setCustomId(
-              "category"
-            )
-            .setStyle(
-              TextInputStyle.Short
-            )
-            .setPlaceholder(
-              "Fashion"
-            )
-            .setRequired(true)
-            .setMaxLength(40)
+        .setStringSelectMenuComponent(
+          adminCategoryMenu()
         ),
 
       new LabelBuilder()
-        .setLabel(
-          "💰 Commission"
-        )
-        .setTextInputComponent(
-          new TextInputBuilder()
-            .setCustomId(
-              "commission"
-            )
-            .setStyle(
-              TextInputStyle.Short
-            )
-            .setPlaceholder(
-              "20%"
-            )
-            .setRequired(true)
-            .setMaxLength(20)
-        ),
-
-      new LabelBuilder()
-        .setLabel(
-          "Upload Product Image"
-        )
+        .setLabel("Product Image")
         .setDescription(
-          "Upload one image for this deal"
+          "Upload the main creator-facing product image"
         )
         .setFileUploadComponent(
           new FileUploadBuilder()
             .setCustomId("image")
-                        .setMinValues(1)
+            .setMinValues(1)
             .setMaxValues(1)
             .setRequired(true)
         )
@@ -1083,27 +1167,19 @@ function addProductModal() {
 
 function editCoreModal(product) {
   return new ModalBuilder()
-
     .setCustomId(
       `admin:edit-core-submit:${product.id}`
     )
-
-    .setTitle(
-      "Edit Product + Image"
-    )
+    .setTitle("Edit Product")
 
     .addLabelComponents(
 
       new LabelBuilder()
-        .setLabel(
-          "Product Name"
-        )
+        .setLabel("Product Name")
         .setTextInputComponent(
           new TextInputBuilder()
             .setCustomId("name")
-            .setStyle(
-              TextInputStyle.Short
-            )
+            .setStyle(TextInputStyle.Short)
             .setValue(product.name)
             .setRequired(true)
             .setMaxLength(100)
@@ -1114,9 +1190,7 @@ function editCoreModal(product) {
         .setTextInputComponent(
           new TextInputBuilder()
             .setCustomId("brand")
-            .setStyle(
-              TextInputStyle.Short
-            )
+            .setStyle(TextInputStyle.Short)
             .setValue(product.brand)
             .setRequired(true)
             .setMaxLength(100)
@@ -1124,19 +1198,13 @@ function editCoreModal(product) {
 
       new LabelBuilder()
         .setLabel("Category")
-        .setTextInputComponent(
-          new TextInputBuilder()
-            .setCustomId(
-              "category"
-            )
-            .setStyle(
-              TextInputStyle.Short
-            )
-            .setValue(
-              product.category
-            )
-            .setRequired(true)
-            .setMaxLength(40)
+        .setDescription(
+          "Where this product appears in Creator Deals"
+        )
+        .setStringSelectMenuComponent(
+          adminCategoryMenu(
+            product.category
+          )
         ),
 
       new LabelBuilder()
@@ -1144,7 +1212,7 @@ function editCoreModal(product) {
           "Replace Product Image"
         )
         .setDescription(
-          "Optional — leave empty to keep current image"
+          "Optional — leave empty to keep the current image"
         )
         .setFileUploadComponent(
           new FileUploadBuilder()
@@ -1476,6 +1544,30 @@ client.on(
   "interactionCreate",
 
   async (interaction) => {
+
+  /*
+   * FAST PATH: Discord Activity launch
+   *
+   * LAUNCH_ACTIVITY is the interaction response itself, so this
+   * must happen immediately before any DB/API/admin work.
+   */
+  if (
+    interaction.isButton() &&
+    interaction.customId === "deals:launch"
+  ) {
+    try {
+      await interaction.launchActivity();
+    } catch (error) {
+      console.error(
+        "Creator Deals Activity launch failed:",
+        error
+      );
+    }
+
+    return;
+  }
+
+
     try {
 
       /* ===================================================
@@ -1507,9 +1599,80 @@ client.on(
          BUTTONS
       =================================================== */
 
+      /* CREATOR DEALS SELECTS */
+
+      if (
+        interaction.isStringSelectMenu() &&
+        interaction.customId === "deals:category"
+      ) {
+        const category =
+          interaction.values[0];
+
+        await interaction.update(
+          buildHome(category, 0)
+        );
+
+        return;
+      }
+
+      if (
+        interaction.isStringSelectMenu() &&
+        interaction.customId === "deals:view"
+      ) {
+        const product =
+          productById(
+            interaction.values[0]
+          );
+
+        if (!product) {
+          await interaction.reply({
+            content:
+              "That product is no longer available.",
+            flags:
+              MessageFlags.Ephemeral,
+          });
+
+          return;
+        }
+
+        await interaction.update(
+          buildProductDetails(product)
+        );
+
+        return;
+      }
+
       if (interaction.isButton()) {
         const id =
           interaction.customId;
+
+        
+
+
+        if (
+          id.startsWith(
+            "deals:page:"
+          )
+        ) {
+          const parts =
+            id.split(":");
+
+          const category =
+            parts[2] || "all";
+
+          const page =
+            Number(parts[3] || 0);
+
+          await interaction.update(
+            buildHome(
+              category,
+              page
+            )
+          );
+
+          return;
+        }
+
 
         /* =================================================
            ADMIN BUTTONS
@@ -2046,10 +2209,9 @@ client.on(
                 .trim(),
 
               interaction.fields
-                .getTextInputValue(
+                .getStringSelectValues(
                   "category"
-                )
-                .trim(),
+                )[0],
 
               interaction.fields
                 .getTextInputValue(
@@ -2286,10 +2448,9 @@ client.on(
                 .trim(),
 
               interaction.fields
-                .getTextInputValue(
+                .getStringSelectValues(
                   "category"
-                )
-                .trim(),
+                )[0],
 
               imageBlob,
 
@@ -2328,10 +2489,9 @@ client.on(
                 .trim(),
 
               interaction.fields
-                .getTextInputValue(
+                .getStringSelectValues(
                   "category"
-                )
-                .trim(),
+                )[0],
 
               productId
             );

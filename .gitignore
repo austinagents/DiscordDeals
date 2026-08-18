@@ -14,3 +14,7 @@ index.js.backup*
 
 .DS_Store
 npm-debug.log*
+
+activity/.env
+activity-server/.env
+activity/dist/
