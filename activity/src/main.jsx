@@ -10,7 +10,8 @@ import {
 
 import {
   initializeDiscord,
-  openExternal
+  openExternal,
+  isDiscordActivity
 } from "./discord";
 
 import {
@@ -34,6 +35,40 @@ const CATEGORIES = [
 
 
 function App() {
+  const browserOnly =
+    !isDiscordActivity() &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1";
+
+  if (browserOnly) {
+    return (
+      <div className="browser-landing">
+        <div className="browser-landing-card">
+          <div className="eyebrow">
+            PARTNERLINKS
+          </div>
+
+          <h1>
+            Creator Deals
+          </h1>
+
+          <p>
+            Creator Deals is available
+            inside the UGC NETWORK
+            Discord server.
+          </p>
+
+          <a
+            className="browser-admin-link"
+            href="/admin/"
+          >
+            Admin →
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   const [loading, setLoading] =
     useState(true);
 
@@ -258,43 +293,6 @@ function App() {
   return (
     <div className="app-shell">
 
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">
-            UGC NETWORK
-          </div>
-
-          <h1>
-            Creator Deals
-          </h1>
-        </div>
-
-        <div className="top-actions">
-
-          {me?.isAdmin && (
-            <button
-              className="icon-button"
-              onClick={openAdmin}
-              title="Admin"
-            >
-              ◈
-            </button>
-          )}
-
-          <button
-            className="icon-button"
-            onClick={() =>
-              setSettingsOpen(true)
-            }
-            title="Settings"
-          >
-            ⚙
-          </button>
-
-        </div>
-      </header>
-
-
       {!selected && (
         <main className="content">
 
@@ -310,11 +308,28 @@ function App() {
               </p>
             </div>
 
-            <div className="deal-count">
-              {products.length}
-              <span>
-                Deals
-              </span>
+            <div className="hero-actions">
+              {me?.isAdmin && (
+                <button
+                  className="icon-button"
+                  onClick={openAdmin}
+                  title="Admin"
+                  aria-label="Admin"
+                >
+                  ◈
+                </button>
+              )}
+
+              <button
+                className="icon-button"
+                onClick={() =>
+                  setSettingsOpen(true)
+                }
+                title="Settings"
+                aria-label="Settings"
+              >
+                ⚙
+              </button>
             </div>
           </section>
 

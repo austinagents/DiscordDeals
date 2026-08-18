@@ -12,6 +12,18 @@ function isLocalDevelopment() {
   );
 }
 
+export function isDiscordActivity() {
+  const params =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  return Boolean(
+    params.get("frame_id") ||
+    params.get("instance_id")
+  );
+}
+
 function getDiscordSdk() {
   if (discordSdk) {
     return discordSdk;
