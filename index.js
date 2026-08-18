@@ -886,7 +886,7 @@ function cleanAdminValue(value, fallback = "—") {
   return String(value).trim();
 }
 
-function buildRequestDashboard() {
+function buildAdminDashboard() {
   const products = allProducts();
   const selected = getAdminSelected();
 
@@ -1400,6 +1400,9 @@ async function attachmentToBuffer(
 let lastRequestDashboardSignature =
   null;
 
+let requestDashboardProductId =
+  null;
+
 
 function requestDashboardRows() {
   return db
@@ -1444,6 +1447,225 @@ function requestDashboardRows() {
       LIMIT 10
     `)
     .all();
+}
+
+
+function requestsForProduct(
+  productId
+) {
+  return db
+    .prepare(`
+      SELECT
+        id,
+        discord_user_id,
+        tiktok_handle,
+        status,
+        created_at,
+        sent_at
+
+      FROM product_requests
+
+      WHERE
+        CAST(product_id AS TEXT) = ?
+
+      ORDER BY
+        datetime(created_at) DESC,
+        id DESC
+    `)
+    .all(
+      String(productId)
+    );
+}
+
+
+function buildRequestDetail(
+  productId
+) {
+  const product =
+    productById(productId);
+
+  if (!product) {
+    requestDashboardProductId =
+      null;
+
+    return buildRequestDashboard();
+  }
+
+  const requests =
+    requestsForProduct(
+      productId
+    );
+
+  const newCount =
+    requests.filter(
+      (row) =>
+        row.status !== "sent"
+    ).length;
+
+  const container =
+    new ContainerBuilder()
+      .setAccentColor(
+        newCount > 0
+          ? 0xF0B232
+          : 0x23A559
+      )
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(
+            [
+              `## ${product.name}`,
+              `**${product.brand}**`,
+              "",
+              `**${requests.length} ${requests.length === 1 ? "request" : "requests"}**`,
+              newCount > 0
+                ? `🟡 **${newCount} new**`
+                : "🟢 **Sent**"
+            ].join("\n")
+          )
+      )
+
+      .addActionRowComponents(
+        new ActionRowBuilder()
+          .addComponents(
+
+            new ButtonBuilder()
+              .setCustomId(
+                "requests:back"
+              )
+              .setLabel(
+                "← Back"
+              )
+              .setStyle(
+                ButtonStyle.Secondary
+              ),
+
+            new ButtonBuilder()
+              .setCustomId(
+                `requests:csv:${product.id}`
+              )
+              .setLabel(
+                "Download TikTok CSV"
+              )
+              .setStyle(
+                ButtonStyle.Primary
+              ),
+
+            new ButtonBuilder()
+              .setCustomId(
+                `requests:sent:${product.id}`
+              )
+              .setLabel(
+                newCount > 0
+                  ? "Mark Sent ✓"
+                  : "Sent ✓"
+              )
+              .setStyle(
+                newCount > 0
+                  ? ButtonStyle.Success
+                  : ButtonStyle.Secondary
+              )
+              .setDisabled(
+                newCount === 0
+              )
+          )
+      );
+
+  if (!requests.length) {
+    container
+      .addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(
+            "No requests for this product."
+          )
+      );
+
+    return v2([
+      container
+    ]);
+  }
+
+  container
+    .addSeparatorComponents(
+      new SeparatorBuilder()
+        .setSpacing(
+          SeparatorSpacingSize.Small
+        )
+        .setDivider(true)
+    );
+
+  /*
+   * Keep Discord message compact.
+   * CSV always contains ALL requests.
+   */
+  const visible =
+    requests.slice(0, 20);
+
+  visible.forEach(
+    (row, index) => {
+      if (index > 0) {
+        container
+          .addSeparatorComponents(
+            new SeparatorBuilder()
+              .setSpacing(
+                SeparatorSpacingSize.Small
+              )
+              .setDivider(false)
+          );
+      }
+
+      const unix =
+        Math.floor(
+          new Date(
+            row.created_at + " UTC"
+          ).getTime() / 1000
+        );
+
+      container
+        .addTextDisplayComponents(
+          new TextDisplayBuilder()
+            .setContent(
+              [
+                `### ${row.tiktok_handle}`,
+                `Discord: <@${row.discord_user_id}>`,
+                Number.isFinite(unix)
+                  ? `Requested: <t:${unix}:f>`
+                  : `Requested: ${row.created_at}`
+              ].join("\n")
+            )
+        );
+    }
+  );
+
+  if (
+    requests.length >
+    visible.length
+  ) {
+    container
+      .addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(
+            `-# Showing latest ${visible.length} of ${requests.length}. CSV includes all TikTok handles.`
+          )
+      );
+  }
+
+  return v2([
+    container
+  ]);
+}
+
+
+function requestSurface() {
+  if (
+    requestDashboardProductId
+  ) {
+    return buildRequestDetail(
+      requestDashboardProductId
+    );
+  }
+
+  return buildRequestDashboard();
 }
 
 
@@ -1560,6 +1782,22 @@ function buildRequestDashboard() {
 
                 .setDisabled(
                   newCount === 0
+                )
+            )
+        )
+
+        .addActionRowComponents(
+          new ActionRowBuilder()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId(
+                  `requests:view:${row.product_id}`
+                )
+                .setLabel(
+                  "View Requests"
+                )
+                .setStyle(
+                  ButtonStyle.Primary
                 )
             )
         );
@@ -1695,7 +1933,7 @@ async function ensureAdminMessage() {
   if (existing) {
     adminMessage =
       await existing.edit({
-        ...buildRequestDashboard(),
+        ...requestSurface(),
 
         /*
          * Remove previous dashboard image attachments
@@ -1710,7 +1948,7 @@ async function ensureAdminMessage() {
   } else {
     adminMessage =
       await channel.send(
-        buildRequestDashboard()
+        requestSurface()
       );
 
     console.log(
@@ -1759,7 +1997,7 @@ async function refreshAdmin() {
 
   adminMessage =
     await adminMessage.edit({
-      ...buildRequestDashboard(),
+      ...requestSurface(),
       attachments: [],
     });
 }
@@ -1780,6 +2018,17 @@ client.on(
   "interactionCreate",
 
   async (interaction) => {
+
+  if (interaction.isButton()) {
+    console.log(
+      "BUTTON CLICK:",
+      interaction.customId,
+      "channel:",
+      interaction.channelId,
+      "expected admin:",
+      process.env.DEALS_ADMIN_CHANNEL_ID
+    );
+  }
 
   /*
    * FAST PATH: Discord Activity launch
@@ -1805,6 +2054,137 @@ client.on(
 
 
     try {
+
+      /* ===================================================
+         REQUEST DASHBOARD — VIEW PRODUCT REQUESTS
+      =================================================== */
+
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(
+          "requests:view:"
+        )
+      ) {
+        if (
+          !adminOnly(interaction)
+        ) {
+          return;
+        }
+
+        await interaction.deferUpdate();
+
+        requestDashboardProductId =
+          interaction.customId
+            .slice(
+              "requests:view:".length
+            );
+
+        await refreshAdmin();
+
+        return;
+      }
+
+
+      /* ===================================================
+         REQUEST DASHBOARD — BACK
+      =================================================== */
+
+      if (
+        interaction.isButton() &&
+        interaction.customId ===
+          "requests:back"
+      ) {
+        if (
+          !adminOnly(interaction)
+        ) {
+          return;
+        }
+
+        await interaction.deferUpdate();
+
+        requestDashboardProductId =
+          null;
+
+        await refreshAdmin();
+
+        return;
+      }
+
+
+      /* ===================================================
+         REQUEST DASHBOARD — DOWNLOAD TIKTOK CSV
+      =================================================== */
+
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(
+          "requests:csv:"
+        )
+      ) {
+        if (
+          !adminOnly(interaction)
+        ) {
+          return;
+        }
+
+        const productId =
+          interaction.customId
+            .slice(
+              "requests:csv:".length
+            );
+
+        const product =
+          productById(
+            productId
+          );
+
+        const rows =
+          requestsForProduct(
+            productId
+          );
+
+        const csv =
+          rows
+            .map(
+              (row) =>
+                String(
+                  row.tiktok_handle || ""
+                ).trim()
+            )
+            .filter(Boolean)
+            .join("\n") +
+          (rows.length ? "\n" : "");
+
+        const filename =
+          `${String(
+            product?.id ||
+            "requests"
+          )}-tiktok-handles.csv`;
+
+        await interaction.reply({
+          content:
+            `TikTok handles for **${product?.name || "product"}**`,
+
+          files: [
+            {
+              attachment:
+                Buffer.from(
+                  csv,
+                  "utf8"
+                ),
+
+              name:
+                filename
+            }
+          ],
+
+          flags:
+            MessageFlags.Ephemeral
+        });
+
+        return;
+      }
+
 
       /* ===================================================
          REQUEST DASHBOARD — MARK CURRENT BATCH SENT
