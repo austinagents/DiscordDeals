@@ -22,7 +22,7 @@ import {
 import "./style.css";
 
 
-const CATEGORIES = [
+const DEFAULT_CATEGORIES = [
   "All",
   "Fashion",
   "Food",
@@ -57,6 +57,9 @@ function App() {
 
   const [category, setCategory] =
     useState("All");
+
+  const [categories, setCategories] =
+    useState(DEFAULT_CATEGORIES);
 
   const [selected, setSelected] =
     useState(null);
@@ -108,11 +111,21 @@ function App() {
          */
         if (session.browser) {
 
-          const productData =
-            await api.products("all");
+          const [
+            productData,
+            categoryData
+          ] =
+            await Promise.all([
+              api.products("all"),
+              api.categories()
+            ]);
 
           setProducts(
             productData
+          );
+
+          setCategories(
+            categoryData
           );
 
           return;
@@ -125,13 +138,15 @@ function App() {
         const [
           meData,
           profileData,
-          productData
+          productData,
+          categoryData
         ] =
           await Promise.all([
 
             api.me(),
             api.profile(),
-            api.products("all")
+            api.products("all"),
+            api.categories()
 
           ]);
 
@@ -143,6 +158,10 @@ function App() {
 
         setProducts(
           productData
+        );
+
+        setCategories(
+          categoryData
         );
 
       } catch (err) {
@@ -338,7 +357,7 @@ function App() {
 
 
           <nav className="tabs">
-            {CATEGORIES.map(
+            {categories.map(
               item => (
                 <button
                   key={item}

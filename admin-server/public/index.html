@@ -337,6 +337,124 @@
         grid-column: auto;
       }
     }
+
+    .ordering-panel {
+      margin-bottom: 30px;
+      padding: 20px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+
+    .ordering-panel h3 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .ordering-help {
+      margin: 6px 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .order-label {
+      margin: 20px 0 9px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .order-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .order-tab {
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel2);
+      font-weight: 700;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .order-groups {
+      display: grid;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .order-group {
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: #111319;
+    }
+
+    .order-group-title {
+      margin-bottom: 10px;
+      font-weight: 800;
+    }
+
+    .order-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .order-item {
+      display: grid;
+      grid-template-columns:
+        28px 42px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      min-height: 52px;
+      padding: 6px 9px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .order-item.dragging,
+    .order-tab.dragging {
+      opacity: .4;
+    }
+
+    .drag-handle {
+      color: var(--muted);
+      font-size: 18px;
+      text-align: center;
+    }
+
+    .order-item img {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: white;
+    }
+
+    .order-item-name {
+      font-weight: 750;
+    }
+
+    .order-item-meta {
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .order-disabled {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
   </style>
 </head>
 
@@ -423,6 +541,31 @@
       >
         + Add Product
       </button>
+    </section>
+
+
+    <section class="ordering-panel">
+      <h3>Display Order</h3>
+
+      <p class="ordering-help">
+        Drag tabs and products into the order
+        creators should see them.
+        Changes save automatically.
+      </p>
+
+      <div class="order-label">
+        Tab Order
+      </div>
+
+      <div
+        id="categoryOrder"
+        class="order-tabs"
+      ></div>
+
+      <div
+        id="orderGroups"
+        class="order-groups"
+      ></div>
     </section>
 
 
@@ -588,6 +731,11 @@
 
 <script>
   let products = [];
+  let orderData = {
+    categories: [],
+    products: []
+  };
+
   let editingId = null;
 
   const $ =
@@ -658,7 +806,10 @@
       $("user").textContent =
         auth.user.username;
 
-      await loadProducts();
+      await Promise.all([
+        loadProducts(),
+        loadOrder()
+      ]);
 
     } catch (error) {
       if (
@@ -687,6 +838,394 @@
       );
 
     renderProducts();
+  }
+
+
+  async function loadOrder() {
+    orderData =
+      await request(
+        "/admin-api/order"
+      );
+
+    renderOrder();
+  }
+
+
+  function orderedForScope(scope) {
+    const rows =
+      [...orderData.products];
+
+    if (
+      scope.toLowerCase() !==
+      "all"
+    ) {
+      return rows
+        .filter(
+          product =>
+            String(
+              product.category
+            ).toLowerCase() ===
+            scope.toLowerCase()
+        )
+        .sort((a, b) => {
+          const av =
+            Number(
+              a.category_sort_order
+            ) || 999999;
+
+          const bv =
+            Number(
+              b.category_sort_order
+            ) || 999999;
+
+          return av - bv;
+        });
+    }
+
+    return rows.sort(
+      (a, b) => {
+        const av =
+          Number(a.sort_order) ||
+          999999;
+
+        const bv =
+          Number(b.sort_order) ||
+          999999;
+
+        return av - bv;
+      }
+    );
+  }
+
+
+  function enableDrag(
+    container,
+    selector,
+    save
+  ) {
+    let dragging = null;
+
+    container
+      .querySelectorAll(selector)
+      .forEach(item => {
+
+        item.draggable = true;
+
+        item.addEventListener(
+          "dragstart",
+          () => {
+            dragging = item;
+            item.classList
+              .add("dragging");
+          }
+        );
+
+        item.addEventListener(
+          "dragend",
+          async () => {
+            item.classList
+              .remove("dragging");
+
+            dragging = null;
+
+            await save();
+          }
+        );
+      });
+
+    container.addEventListener(
+      "dragover",
+      event => {
+        event.preventDefault();
+
+        if (!dragging) {
+          return;
+        }
+
+        const siblings =
+          [
+            ...container
+              .querySelectorAll(
+                `${selector}:not(.dragging)`
+              )
+          ];
+
+        const next =
+          siblings.find(
+            sibling => {
+              const box =
+                sibling
+                  .getBoundingClientRect();
+
+              return (
+                event.clientY <
+                box.top +
+                box.height / 2
+              );
+            }
+          );
+
+        if (next) {
+          container.insertBefore(
+            dragging,
+            next
+          );
+        } else {
+          container.appendChild(
+            dragging
+          );
+        }
+      }
+    );
+  }
+
+
+  function renderOrder() {
+    const tabs =
+      $("categoryOrder");
+
+    tabs.innerHTML = "";
+
+    orderData.categories
+      .forEach(category => {
+        const item =
+          document.createElement(
+            "div"
+          );
+
+        item.className =
+          "order-tab";
+
+        item.dataset.category =
+          category;
+
+        item.textContent =
+          `☰ ${category}`;
+
+        tabs.append(item);
+      });
+
+    enableDrag(
+      tabs,
+      ".order-tab",
+      async () => {
+        const categories =
+          [
+            ...tabs
+              .querySelectorAll(
+                ".order-tab"
+              )
+          ]
+            .map(
+              item =>
+                item.dataset.category
+            );
+
+        await request(
+          "/admin-api/order/categories",
+          {
+            method: "PUT",
+
+            headers: {
+              "Content-Type":
+                "application/json"
+            },
+
+            body:
+              JSON.stringify({
+                categories
+              })
+          }
+        );
+
+        orderData.categories =
+          categories;
+
+        renderOrder();
+      }
+    );
+
+
+    const groups =
+      $("orderGroups");
+
+    groups.innerHTML = "";
+
+    orderData.categories
+      .forEach(category => {
+        const section =
+          document.createElement(
+            "section"
+          );
+
+        section.className =
+          "order-group";
+
+        const title =
+          document.createElement(
+            "div"
+          );
+
+        title.className =
+          "order-group-title";
+
+        title.textContent =
+          category === "All"
+            ? "All Products"
+            : category;
+
+        const list =
+          document.createElement(
+            "div"
+          );
+
+        list.className =
+          "order-list";
+
+        list.dataset.scope =
+          category;
+
+        const rows =
+          orderedForScope(
+            category
+          );
+
+        rows.forEach(
+          product => {
+            const item =
+              document.createElement(
+                "div"
+              );
+
+            item.className =
+              "order-item";
+
+            item.dataset.id =
+              product.id;
+
+            const handle =
+              document.createElement(
+                "div"
+              );
+
+            handle.className =
+              "drag-handle";
+
+            handle.textContent =
+              "⋮⋮";
+
+            const image =
+              document.createElement(
+                "img"
+              );
+
+            image.src =
+              `/api/products/${encodeURIComponent(
+                product.id
+              )}/image`;
+
+            const info =
+              document.createElement(
+                "div"
+              );
+
+            const name =
+              document.createElement(
+                "div"
+              );
+
+            name.className =
+              "order-item-name";
+
+            name.textContent =
+              product.name;
+
+            const meta =
+              document.createElement(
+                "div"
+              );
+
+            meta.className =
+              "order-item-meta";
+
+            meta.textContent =
+              `${product.brand} • ${product.category}`;
+
+            info.append(
+              name,
+              meta
+            );
+
+            const status =
+              document.createElement(
+                "div"
+              );
+
+            status.className =
+              "order-disabled";
+
+            status.textContent =
+              product.active
+                ? ""
+                : "DISABLED";
+
+            item.append(
+              handle,
+              image,
+              info,
+              status
+            );
+
+            list.append(item);
+          }
+        );
+
+        enableDrag(
+          list,
+          ".order-item",
+          async () => {
+            const ids =
+              [
+                ...list
+                  .querySelectorAll(
+                    ".order-item"
+                  )
+              ]
+                .map(
+                  item =>
+                    item.dataset.id
+                );
+
+            await request(
+              "/admin-api/order/products",
+              {
+                method: "PUT",
+
+                headers: {
+                  "Content-Type":
+                    "application/json"
+                },
+
+                body:
+                  JSON.stringify({
+                    scope:
+                      category,
+                    ids
+                  })
+              }
+            );
+
+            await loadOrder();
+          }
+        );
+
+        section.append(
+          title,
+          list
+        );
+
+        groups.append(section);
+      });
   }
 
 

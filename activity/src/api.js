@@ -78,6 +78,12 @@ export const api = {
     );
   },
 
+  categories() {
+    return request(
+      "/api/categories"
+    );
+  },
+
   products(category = "all") {
     return request(
       `/api/products?category=${encodeURIComponent(

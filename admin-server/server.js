@@ -27,6 +27,68 @@ const db = new Database(
 
 db.pragma("journal_mode = WAL");
 
+function columns(table) {
+  return new Set(
+    db.prepare(
+      `PRAGMA table_info(${table})`
+    )
+      .all()
+      .map(row => row.name)
+  );
+}
+
+function addColumn(
+  table,
+  name,
+  definition
+) {
+  if (!columns(table).has(name)) {
+    db.exec(
+      `ALTER TABLE ${table}
+       ADD COLUMN ${definition}`
+    );
+  }
+}
+
+addColumn(
+  "products",
+  "sort_order",
+  "sort_order INTEGER NOT NULL DEFAULT 0"
+);
+
+addColumn(
+  "products",
+  "category_sort_order",
+  "category_sort_order INTEGER NOT NULL DEFAULT 0"
+);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )
+`);
+
+db.prepare(`
+  INSERT OR IGNORE INTO app_settings (
+    key,
+    value
+  )
+  VALUES (?, ?)
+`).run(
+  "category_order",
+  JSON.stringify([
+    "All",
+    "Fashion",
+    "Food",
+    "Sports",
+    "Home",
+    "Beauty",
+    "Tech",
+    "Other"
+  ])
+);
+
 const app = express();
 
 const upload = multer({
@@ -442,6 +504,163 @@ app.post(
       res,
       "partnerlinks_admin"
     );
+
+    res.json({
+      ok: true
+    });
+  }
+);
+
+
+/* ===============================
+   DISPLAY ORDER API
+================================ */
+
+app.get(
+  "/admin-api/order",
+  requireAdmin,
+  (req, res) => {
+    const setting =
+      db.prepare(
+        `SELECT value
+         FROM app_settings
+         WHERE key = ?`
+      ).get("category_order");
+
+    let categories;
+
+    try {
+      categories =
+        JSON.parse(
+          setting?.value || "[]"
+        );
+    } catch {
+      categories = [];
+    }
+
+    if (!categories.length) {
+      categories = [
+        "All",
+        "Fashion",
+        "Food",
+        "Sports",
+        "Home",
+        "Beauty",
+        "Tech",
+        "Other"
+      ];
+    }
+
+    const products =
+      db.prepare(`
+        SELECT *
+        FROM products
+        ORDER BY
+          CASE
+            WHEN sort_order > 0 THEN 0
+            ELSE 1
+          END,
+          sort_order ASC,
+          rowid DESC
+      `).all()
+       .map(normalizeProduct);
+
+    res.json({
+      categories,
+      products
+    });
+  }
+);
+
+
+app.put(
+  "/admin-api/order/categories",
+  requireAdmin,
+  (req, res) => {
+    const categories =
+      Array.isArray(
+        req.body.categories
+      )
+        ? req.body.categories
+            .map(String)
+        : [];
+
+    if (!categories.length) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "Category order required"
+        });
+    }
+
+    db.prepare(`
+      INSERT INTO app_settings (
+        key,
+        value
+      )
+      VALUES (?, ?)
+      ON CONFLICT(key)
+      DO UPDATE SET
+        value = excluded.value
+    `).run(
+      "category_order",
+      JSON.stringify(categories)
+    );
+
+    res.json({
+      ok: true,
+      categories
+    });
+  }
+);
+
+
+app.put(
+  "/admin-api/order/products",
+  requireAdmin,
+  (req, res) => {
+    const ids =
+      Array.isArray(req.body.ids)
+        ? req.body.ids.map(String)
+        : [];
+
+    const scope =
+      String(
+        req.body.scope || "All"
+      );
+
+    if (!ids.length) {
+      return res.json({
+        ok: true
+      });
+    }
+
+    const column =
+      scope.toLowerCase() === "all"
+        ? "sort_order"
+        : "category_sort_order";
+
+    const update =
+      db.prepare(
+        `UPDATE products
+         SET ${column} = ?
+         WHERE id = ?`
+      );
+
+    const transaction =
+      db.transaction(items => {
+        items.forEach(
+          (id, index) => {
+            update.run(
+              index + 1,
+              id
+            );
+          }
+        );
+      });
+
+    transaction(ids);
 
     res.json({
       ok: true

@@ -99,6 +99,46 @@ function addColumn(
 
 addColumn(
   "products",
+  "sort_order",
+  "sort_order INTEGER NOT NULL DEFAULT 0"
+);
+
+addColumn(
+  "products",
+  "category_sort_order",
+  "category_sort_order INTEGER NOT NULL DEFAULT 0"
+);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )
+`);
+
+db.prepare(`
+  INSERT OR IGNORE INTO app_settings (
+    key,
+    value
+  )
+  VALUES (?, ?)
+`).run(
+  "category_order",
+  JSON.stringify([
+    "All",
+    "Fashion",
+    "Food",
+    "Sports",
+    "Home",
+    "Beauty",
+    "Tech",
+    "Other"
+  ])
+);
+
+
+addColumn(
+  "products",
   "description",
   "description TEXT NOT NULL DEFAULT ''"
 );
@@ -544,6 +584,46 @@ app.get(
 ========================================================= */
 
 app.get(
+  "/api/categories",
+  (req, res) => {
+    const row =
+      db.prepare(
+        `SELECT value
+         FROM app_settings
+         WHERE key = ?`
+      ).get("category_order");
+
+    let categories;
+
+    try {
+      categories =
+        JSON.parse(
+          row?.value || "[]"
+        );
+    } catch {
+      categories = [];
+    }
+
+    if (!categories.length) {
+      categories = [
+        "All",
+        "Fashion",
+        "Food",
+        "Sports",
+        "Home",
+        "Beauty",
+        "Tech",
+        "Other"
+      ];
+    }
+
+    res.json(categories);
+  }
+);
+
+
+
+app.get(
   "/api/products",
   (req, res) => {
     const category =
@@ -563,7 +643,13 @@ app.get(
           `SELECT *
            FROM products
            WHERE active = 1
-           ORDER BY rowid DESC`
+           ORDER BY
+             CASE
+               WHEN sort_order > 0 THEN 0
+               ELSE 1
+             END,
+             sort_order ASC,
+             rowid DESC`
         ).all();
     } else {
       rows =
@@ -573,7 +659,13 @@ app.get(
            WHERE active = 1
            AND lower(category) =
                lower(?)
-           ORDER BY rowid DESC`
+           ORDER BY
+             CASE
+               WHEN category_sort_order > 0 THEN 0
+               ELSE 1
+             END,
+             category_sort_order ASC,
+             rowid DESC`
         ).all(category);
     }
 
