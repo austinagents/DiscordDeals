@@ -1,0 +1,2484 @@
+require("dotenv").config();
+
+const Database = require("better-sqlite3");
+
+const {
+  Client,
+  GatewayIntentBits,
+  ContainerBuilder,
+  TextDisplayBuilder,
+  SectionBuilder,
+  ThumbnailBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ActionRowBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
+  ModalBuilder,
+  LabelBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  FileUploadBuilder,
+  StringSelectMenuBuilder,
+  MediaGalleryBuilder,
+  MessageFlags,
+} = require("discord.js");
+
+/* =========================================================
+   CLIENT
+========================================================= */
+
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds],
+});
+
+/* =========================================================
+   DATABASE
+========================================================= */
+
+const db = new Database("creator-deals.db");
+
+db.pragma("journal_mode = WAL");
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    name TEXT NOT NULL,
+    brand TEXT NOT NULL,
+    category TEXT NOT NULL,
+    commission TEXT NOT NULL,
+
+    shop_ads TEXT NOT NULL DEFAULT '—',
+    free_sample TEXT NOT NULL DEFAULT 'Auto-Approved',
+    requirements TEXT NOT NULL DEFAULT '1 TikTok Shoppable Video',
+    brand_website TEXT NOT NULL DEFAULT '',
+
+    image_blob BLOB,
+    image_filename TEXT,
+    image_mime TEXT,
+    image_url TEXT,
+
+    active INTEGER NOT NULL DEFAULT 0,
+
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS creator_profiles (
+    discord_user_id TEXT PRIMARY KEY,
+    tiktok_handle TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS product_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    discord_user_id TEXT NOT NULL,
+    product_id INTEGER NOT NULL,
+    tiktok_handle TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+/* =========================================================
+   INITIAL PRODUCTS
+
+   These only seed the DB if the DB is empty.
+   Once created, use the Admin Dashboard instead of code.
+========================================================= */
+
+const existingCount = db
+  .prepare("SELECT COUNT(*) AS c FROM products")
+  .get().c;
+
+if (existingCount === 0) {
+  const seed = db.prepare(`
+    INSERT INTO products (
+      name,
+      brand,
+      category,
+      commission,
+      shop_ads,
+      free_sample,
+      requirements,
+      brand_website,
+      image_url,
+      active
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  `);
+
+  seed.run(
+    "FlowFit Activewear Set",
+    "FlowFit",
+    "Fashion",
+    "20%",
+    "+15%",
+    "Auto-Approved",
+    "1 TikTok Shoppable Video",
+    "https://example.com",
+    "https://images.unsplash.com/photo-1518611012118-696072aa579a?w=800"
+  );
+
+  seed.run(
+    "Aura Jewelry Bundle",
+    "Aura",
+    "Fashion",
+    "18%",
+    "—",
+    "Auto-Approved",
+    "1 TikTok Shoppable Video",
+    "https://example.com",
+    "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=800"
+  );
+
+  seed.run(
+    "Urban Streetwear Hoodie",
+    "Urban Co.",
+    "Fashion",
+    "15%",
+    "—",
+    "Auto-Approved",
+    "1 TikTok Shoppable Video",
+    "https://example.com",
+    "https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=800"
+  );
+
+  seed.run(
+    "Canvas Tote Bag",
+    "Canvas Co.",
+    "Fashion",
+    "12%",
+    "—",
+    "Auto-Approved",
+    "1 TikTok Shoppable Video",
+    "https://example.com",
+    "https://images.unsplash.com/photo-1594223274512-ad4803739b7c?w=800"
+  );
+
+  seed.run(
+    "Classic Sunglasses",
+    "Classic",
+    "Fashion",
+    "10%",
+    "—",
+    "Auto-Approved",
+    "1 TikTok Shoppable Video",
+    "https://example.com",
+    "https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=800"
+  );
+
+  console.log("✓ Initial products added to SQLite");
+}
+
+/* =========================================================
+   STATE
+========================================================= */
+
+let publicMessage = null;
+let adminMessage = null;
+
+let adminSelectedProductId = null;
+
+/* =========================================================
+   DATABASE HELPERS
+========================================================= */
+
+function productById(id) {
+  return db
+    .prepare("SELECT * FROM products WHERE id = ?")
+    .get(String(id));
+}
+
+function makeProductId(name) {
+  const base =
+    String(name)
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 50) || "product";
+
+  let id = base;
+  let suffix = 2;
+
+  while (productById(id)) {
+    id = `${base}-${suffix++}`;
+  }
+
+  return id;
+}
+
+function activeProducts(category = "all") {
+  if (category === "all") {
+    return db
+      .prepare(`
+        SELECT *
+        FROM products
+        WHERE active = 1
+        ORDER BY id DESC
+      `)
+      .all();
+  }
+
+  return db
+    .prepare(`
+      SELECT *
+      FROM products
+      WHERE active = 1
+      AND lower(category) = lower(?)
+      ORDER BY id DESC
+    `)
+    .all(category);
+}
+
+function allProducts() {
+  return db
+    .prepare(`
+      SELECT *
+      FROM products
+      ORDER BY id DESC
+    `)
+    .all();
+}
+
+function getTikTok(userId) {
+  return (
+    db
+      .prepare(`
+        SELECT tiktok_handle
+        FROM creator_profiles
+        WHERE discord_user_id = ?
+      `)
+      .get(userId)?.tiktok_handle || null
+  );
+}
+
+function saveTikTok(userId, handle) {
+  db.prepare(`
+    INSERT INTO creator_profiles (
+      discord_user_id,
+      tiktok_handle,
+      updated_at
+    )
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+
+    ON CONFLICT(discord_user_id)
+    DO UPDATE SET
+      tiktok_handle = excluded.tiktok_handle,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(userId, handle);
+}
+
+/* =========================================================
+   UI HELPERS
+========================================================= */
+
+function v2(components, extra = {}) {
+  return {
+    flags: MessageFlags.IsComponentsV2,
+    components,
+    ...extra,
+  };
+}
+
+function productMedia(product, prefix = "product") {
+  /*
+   * Images uploaded through the Admin UI are stored as raw
+   * image bytes in SQLite, so they survive bot restarts and
+   * don't depend on expiring CDN URLs.
+   */
+
+  if (product.image_blob && product.image_filename) {
+    const safeFilename =
+      `${prefix}-${product.id}-${product.image_filename}`
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    return {
+      url: `attachment://${safeFilename}`,
+
+      files: [
+        {
+          attachment: product.image_blob,
+          name: safeFilename,
+        },
+      ],
+    };
+  }
+
+  return {
+    url:
+      product.image_url ||
+      "https://cdn.discordapp.com/embed/avatars/0.png",
+
+    files: [],
+  };
+}
+
+/* =========================================================
+   CREATOR UI — HOME
+========================================================= */
+
+function categoryRow(selected = "all") {
+  const names = [
+    "All",
+    "Fashion",
+    "Food",
+    "Sports",
+    "Home",
+  ];
+
+  return new ActionRowBuilder().addComponents(
+    ...names.map((name) =>
+      new ButtonBuilder()
+        .setCustomId(
+          `category:${name.toLowerCase()}`
+        )
+        .setLabel(name)
+        .setStyle(
+          selected === name.toLowerCase()
+            ? ButtonStyle.Primary
+            : ButtonStyle.Secondary
+        )
+    )
+  );
+}
+
+function buildHome(category = "all") {
+  const allMatching =
+    activeProducts(category);
+
+  /*
+   * FIXED UI HEIGHT:
+   * Always render exactly 5 product rows.
+   * Empty slots become quiet placeholders so changing
+   * categories does not collapse the entire bot surface.
+   */
+  const products =
+    allMatching.slice(0, 5);
+
+  const container =
+    new ContainerBuilder()
+      .setAccentColor(0x5865f2)
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          [
+            "## Find products to promote",
+            "Explore deals from top brands and earn commissions.",
+          ].join("\n")
+        )
+      )
+
+      .addActionRowComponents(
+        categoryRow(category)
+      );
+
+  /*
+   * Second category row is ALWAYS present so the top
+   * portion of the UI never changes height.
+   */
+  container.addActionRowComponents(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("category:beauty")
+        .setLabel("Beauty")
+        .setStyle(
+          category === "beauty"
+            ? ButtonStyle.Primary
+            : ButtonStyle.Secondary
+        )
+    )
+  );
+
+  container.addSeparatorComponents(
+    new SeparatorBuilder()
+      .setSpacing(
+        SeparatorSpacingSize.Small
+      )
+      .setDivider(true)
+  );
+
+  /*
+   * Five permanent product slots.
+   */
+  for (let i = 0; i < 5; i++) {
+    const product = products[i];
+
+    if (product) {
+      container.addSectionComponents(
+        new SectionBuilder()
+
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+              [
+                `**${product.name}**`,
+                `💰 **${product.commission} Commission**  •  📦 **Auto-Approved**`,
+              ].join("\n")
+            )
+          )
+
+          .setButtonAccessory(
+            new ButtonBuilder()
+              .setCustomId(
+                `product:${product.id}`
+              )
+              .setLabel("View")
+              .setStyle(
+                ButtonStyle.Secondary
+              )
+          )
+      );
+    } else {
+      /*
+       * Quiet placeholder matching approximately the
+       * same vertical footprint as a real product row.
+       */
+      container.addSectionComponents(
+        new SectionBuilder()
+
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+              "\u200B\n\u200B"
+            )
+          )
+
+          .setButtonAccessory(
+            new ButtonBuilder()
+              .setCustomId(
+                `empty:${i}`
+              )
+              .setLabel("—")
+              .setStyle(
+                ButtonStyle.Secondary
+              )
+              .setDisabled(true)
+          )
+      );
+    }
+  }
+
+  container.addSeparatorComponents(
+    new SeparatorBuilder()
+      .setSpacing(
+        SeparatorSpacingSize.Small
+      )
+      .setDivider(true)
+  );
+
+  container.addTextDisplayComponents(
+    new TextDisplayBuilder().setContent(
+      "**Page 1**"
+    )
+  );
+
+  return v2([container]);
+}
+
+/* =========================================================
+   CREATOR UI — PRODUCT DETAILS
+========================================================= */
+
+function buildProductDetails(product) {
+  const media =
+    productMedia(product, "detail");
+
+  const container =
+    new ContainerBuilder()
+      .setAccentColor(0x5865f2)
+
+      .addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(
+              "deals:home"
+            )
+            .setLabel(
+              "← Back to Home"
+            )
+            .setStyle(
+              ButtonStyle.Secondary
+            )
+        )
+      )
+
+      .addMediaGalleryComponents(
+        new MediaGalleryBuilder({
+          items: [
+            {
+              description:
+                product.name,
+
+              media: {
+                url: media.url,
+              },
+            },
+          ],
+        })
+      )
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          [
+            `## ${product.name}`,
+            `by **${product.brand}**`,
+            "",
+            `💰 **Commission:** ${product.commission}`,
+            `🚀 **Shop Ads:** ${product.shop_ads}`,
+            `📦 **Free Sample:** Auto-Approved`,
+            `⭐ **Requirements:** 1 TikTok Shoppable Video`,
+            `🌐 **Brand Website:** ${product.brand_website || "—"}`,
+          ].join("\n")
+        )
+      );
+
+  const buttons = [
+    new ButtonBuilder()
+      .setCustomId(
+        `request:${product.id}`
+      )
+      .setLabel(
+        "Request Product"
+      )
+      .setStyle(
+        ButtonStyle.Primary
+      ),
+  ];
+
+  if (product.brand_website) {
+    buttons.push(
+      new ButtonBuilder()
+        .setLabel(
+          "Brand Website"
+        )
+        .setURL(
+          product.brand_website
+        )
+        .setStyle(
+          ButtonStyle.Link
+        )
+    );
+  }
+
+  container.addActionRowComponents(
+    new ActionRowBuilder()
+      .addComponents(...buttons)
+  );
+
+  return v2(
+    [container],
+    {
+      files: media.files,
+    }
+  );
+}
+
+/* =========================================================
+   CREATOR UI — CONFIRM
+========================================================= */
+
+function buildConfirm(
+  product,
+  handle
+) {
+  const container =
+    new ContainerBuilder()
+      .setAccentColor(0x5865f2)
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          [
+            "## Confirm Your Request",
+            "",
+            `**${product.name}**`,
+            `by ${product.brand}`,
+            "",
+            `💰 ${product.commission} Commission`,
+            `📦 Auto-Approved`,
+            "",
+            "**TikTok Username**",
+            handle,
+            "",
+            "🔒 By requesting this product, you agree to the deal requirements.",
+          ].join("\n")
+        )
+      )
+
+      .addActionRowComponents(
+        new ActionRowBuilder()
+          .addComponents(
+
+            new ButtonBuilder()
+              .setCustomId(
+                "deals:home"
+              )
+              .setLabel("Cancel")
+              .setStyle(
+                ButtonStyle.Secondary
+              ),
+
+            new ButtonBuilder()
+              .setCustomId(
+                `confirm:${product.id}`
+              )
+              .setLabel(
+                "Confirm Request"
+              )
+              .setStyle(
+                ButtonStyle.Primary
+              )
+          )
+      );
+
+  return v2([container]);
+}
+
+/* =========================================================
+   CREATOR UI — SUBMITTED
+========================================================= */
+
+function buildSubmitted(product) {
+  return v2([
+    new ContainerBuilder()
+      .setAccentColor(0x23a559)
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          [
+            "# ✅",
+            "## Request Submitted!",
+            `Your request for **${product.name}** has been submitted.`,
+            "",
+            "### What happens next?",
+            "• The brand will review your request",
+            "• You'll be notified of their decision",
+            "• If approved, your product will ship soon",
+          ].join("\n")
+        )
+      )
+
+      .addActionRowComponents(
+        new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId(
+                "deals:home"
+              )
+              .setLabel(
+                "Back to Home"
+              )
+              .setStyle(
+                ButtonStyle.Primary
+              )
+          )
+      ),
+  ]);
+}
+
+/* =========================================================
+   CREATOR TIKTOK MODAL
+========================================================= */
+
+function tikTokModal(productId) {
+  return new ModalBuilder()
+
+    .setCustomId(
+      `tiktok:${productId}`
+    )
+
+    .setTitle(
+      "Confirm Request"
+    )
+
+    .addLabelComponents(
+
+      new LabelBuilder()
+        .setLabel(
+          "Enter your social username"
+        )
+        .setDescription(
+          "TikTok username"
+        )
+
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("tiktok")
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setPlaceholder(
+              "@yourusername"
+            )
+            .setRequired(true)
+            .setMaxLength(40)
+        )
+    );
+}
+
+/* =========================================================
+   ADMIN — SELECTED PRODUCT
+========================================================= */
+
+function getAdminSelected() {
+  const products =
+    allProducts();
+
+  if (!products.length) {
+    return null;
+  }
+
+  let selected =
+    productById(
+      adminSelectedProductId
+    );
+
+  if (!selected) {
+    selected = products[0];
+
+    adminSelectedProductId =
+      selected.id;
+  }
+
+  return selected;
+}
+
+/* =========================================================
+   ADMIN — PERMANENT DASHBOARD
+========================================================= */
+
+function cleanAdminValue(value, fallback = "—") {
+  if (
+    value === null ||
+    value === undefined ||
+    String(value).trim() === "" ||
+    String(value).trim().toLowerCase() === "null" ||
+    String(value).trim().toLowerCase() === "undefined"
+  ) {
+    return fallback;
+  }
+
+  return String(value).trim();
+}
+
+function buildAdminDashboard() {
+  const products = allProducts();
+  const selected = getAdminSelected();
+
+  const activeCount = products.filter(
+    (product) => product.active
+  ).length;
+
+  const container =
+    new ContainerBuilder()
+      .setAccentColor(0x5865f2)
+
+      .addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+              [
+                "## Deals Admin",
+                `**${activeCount} active** • ${products.length} total`,
+              ].join("\n")
+            )
+          )
+          .setButtonAccessory(
+            new ButtonBuilder()
+              .setCustomId("admin:gear")
+              .setEmoji("⚙️")
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true)
+          )
+      )
+
+      .addActionRowComponents(
+        new ActionRowBuilder().addComponents(
+
+          new ButtonBuilder()
+            .setCustomId("admin:add")
+            .setLabel("＋ Add Product")
+            .setStyle(ButtonStyle.Success),
+
+          new ButtonBuilder()
+            .setCustomId("admin:refresh")
+            .setLabel("Refresh Creator Deals")
+            .setStyle(ButtonStyle.Primary)
+        )
+      );
+
+  if (!products.length) {
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        "No products yet. Click **Add Product**."
+      )
+    );
+
+    return v2([container]);
+  }
+
+  container
+    .addSeparatorComponents(
+      new SeparatorBuilder()
+        .setSpacing(SeparatorSpacingSize.Small)
+        .setDivider(true)
+    )
+
+    .addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+
+        new StringSelectMenuBuilder()
+          .setCustomId("admin:select")
+          .setPlaceholder("Choose product")
+
+          .addOptions(
+            products.slice(0, 25).map((product) => ({
+              label: product.name.slice(0, 100),
+
+              description: [
+                product.brand,
+                product.category,
+                product.active ? "Active" : "Disabled",
+              ]
+                .join(" • ")
+                .slice(0, 100),
+
+              value: String(product.id),
+
+              default:
+                selected?.id === product.id,
+            }))
+          )
+      )
+    );
+
+  if (!selected) {
+    return v2([container]);
+  }
+
+  const shopAds =
+    cleanAdminValue(
+      selected.shop_ads,
+      "—"
+    );
+
+  const freeSample =
+    "Auto-Approved";
+
+  const requirements =
+    "1 TikTok Shoppable Video";
+
+  const website =
+    cleanAdminValue(
+      selected.brand_website,
+      "—"
+    );
+
+  const media =
+    productMedia(
+      selected,
+      "admin"
+    );
+
+  const section =
+    new SectionBuilder()
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          [
+            `## ${selected.name}`,
+            `**${selected.brand}** • ${selected.category}`,
+            selected.active
+              ? "🟢 **Active**"
+              : "⚫ **Disabled**",
+            "",
+            `💰 **Commission:** ${selected.commission}`,
+            `🚀 **Shop Ads:** ${shopAds}`,
+            `📦 **Free Sample:** ${freeSample}`,
+            `⭐ **Requirements:** ${requirements}`,
+            `🌐 **Brand Website:** ${website}`,
+          ].join("\n")
+        )
+      )
+
+      .setThumbnailAccessory(
+        new ThumbnailBuilder()
+          .setURL(media.url)
+          .setDescription(selected.name)
+      );
+
+  container
+    .addSeparatorComponents(
+      new SeparatorBuilder()
+        .setSpacing(SeparatorSpacingSize.Small)
+        .setDivider(true)
+    )
+
+    .addSectionComponents(section)
+
+    .addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+
+        new ButtonBuilder()
+          .setCustomId(
+            `admin:edit-core:${selected.id}`
+          )
+          .setLabel("Product + Image")
+          .setStyle(ButtonStyle.Secondary),
+
+        new ButtonBuilder()
+          .setCustomId(
+            `admin:edit-deal:${selected.id}`
+          )
+          .setLabel("Deal Info")
+          .setStyle(ButtonStyle.Secondary)
+      )
+    )
+
+    .addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+
+        new ButtonBuilder()
+          .setCustomId(
+            `admin:toggle:${selected.id}`
+          )
+          .setLabel(
+            selected.active
+              ? "Disable"
+              : "Enable"
+          )
+          .setStyle(
+            selected.active
+              ? ButtonStyle.Secondary
+              : ButtonStyle.Success
+          ),
+
+        new ButtonBuilder()
+          .setCustomId(
+            `admin:delete:${selected.id}`
+          )
+          .setLabel("Delete")
+          .setStyle(ButtonStyle.Danger)
+      )
+    );
+
+  return v2(
+    [container],
+    {
+      files: media.files,
+    }
+  );
+}
+
+/* =========================================================
+   ADMIN — ADD PRODUCT STEP 1
+
+   Includes native Discord image upload.
+========================================================= */
+
+function addProductModal() {
+  return new ModalBuilder()
+
+    .setCustomId(
+      "admin:add-core"
+    )
+
+    .setTitle(
+      "Add Product — Step 1 of 2"
+    )
+
+    .addLabelComponents(
+
+      new LabelBuilder()
+        .setLabel(
+          "Product Name"
+        )
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("name")
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setPlaceholder(
+              "FlowFit Activewear Set"
+            )
+            .setRequired(true)
+            .setMaxLength(100)
+        ),
+
+      new LabelBuilder()
+        .setLabel("Brand")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("brand")
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setPlaceholder(
+              "FlowFit"
+            )
+            .setRequired(true)
+            .setMaxLength(100)
+        ),
+
+      new LabelBuilder()
+        .setLabel("Category")
+        .setDescription(
+          "Fashion, Food, Sports, Home, Beauty, etc."
+        )
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId(
+              "category"
+            )
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setPlaceholder(
+              "Fashion"
+            )
+            .setRequired(true)
+            .setMaxLength(40)
+        ),
+
+      new LabelBuilder()
+        .setLabel(
+          "💰 Commission"
+        )
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId(
+              "commission"
+            )
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setPlaceholder(
+              "20%"
+            )
+            .setRequired(true)
+            .setMaxLength(20)
+        ),
+
+      new LabelBuilder()
+        .setLabel(
+          "Upload Product Image"
+        )
+        .setDescription(
+          "Upload one image for this deal"
+        )
+        .setFileUploadComponent(
+          new FileUploadBuilder()
+            .setCustomId("image")
+                        .setMinValues(1)
+            .setMaxValues(1)
+            .setRequired(true)
+        )
+    );
+}
+
+/* =========================================================
+   ADMIN — EDIT MAIN PRODUCT INFO
+========================================================= */
+
+function editCoreModal(product) {
+  return new ModalBuilder()
+
+    .setCustomId(
+      `admin:edit-core-submit:${product.id}`
+    )
+
+    .setTitle(
+      "Edit Product + Image"
+    )
+
+    .addLabelComponents(
+
+      new LabelBuilder()
+        .setLabel(
+          "Product Name"
+        )
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("name")
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setValue(product.name)
+            .setRequired(true)
+            .setMaxLength(100)
+        ),
+
+      new LabelBuilder()
+        .setLabel("Brand")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("brand")
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setValue(product.brand)
+            .setRequired(true)
+            .setMaxLength(100)
+        ),
+
+      new LabelBuilder()
+        .setLabel("Category")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId(
+              "category"
+            )
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setValue(
+              product.category
+            )
+            .setRequired(true)
+            .setMaxLength(40)
+        ),
+
+      new LabelBuilder()
+        .setLabel(
+          "Replace Product Image"
+        )
+        .setDescription(
+          "Optional — leave empty to keep current image"
+        )
+        .setFileUploadComponent(
+          new FileUploadBuilder()
+            .setCustomId("image")
+            .setMinValues(0)
+            .setMaxValues(1)
+            .setRequired(false)
+        )
+    );
+}
+
+/* =========================================================
+   ADMIN — DEAL INFO
+
+   Exactly the fields requested.
+========================================================= */
+
+function dealInfoModal(product, mode = "edit") {
+  const customId =
+    mode === "add"
+      ? `admin:add-deal:${product.id}`
+      : `admin:edit-deal-submit:${product.id}`;
+
+  const description =
+    cleanAdminValue(
+      product.description,
+      ""
+    );
+
+  const commission =
+    cleanAdminValue(
+      product.commission,
+      "10%"
+    );
+
+  const shopAds =
+    cleanAdminValue(
+      product.shop_ads,
+      "—"
+    );
+
+  const website =
+    cleanAdminValue(
+      product.brand_website,
+      ""
+    );
+
+  return new ModalBuilder()
+
+    .setCustomId(customId)
+
+    .setTitle(
+      mode === "add"
+        ? "Deal Info"
+        : "Edit Deal Info"
+    )
+
+    .addLabelComponents(
+
+      new LabelBuilder()
+        .setLabel("Description")
+        .setDescription(
+          "Short creator-facing product description"
+        )
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("description")
+            .setStyle(TextInputStyle.Paragraph)
+            .setValue(description)
+            .setPlaceholder(
+              "Describe the product and offer..."
+            )
+            .setRequired(false)
+            .setMaxLength(1000)
+        ),
+
+      new LabelBuilder()
+        .setLabel("💰 Commission")
+        .setDescription(
+          "Example: 20%"
+        )
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("commission")
+            .setStyle(TextInputStyle.Short)
+            .setValue(commission)
+            .setPlaceholder("20%")
+            .setRequired(true)
+            .setMaxLength(30)
+        ),
+
+      new LabelBuilder()
+        .setLabel("🚀 Shop Ads")
+        .setDescription(
+          "Example: +15% or —"
+        )
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("shop_ads")
+            .setStyle(TextInputStyle.Short)
+            .setValue(shopAds)
+            .setPlaceholder("+15% or —")
+            .setRequired(true)
+            .setMaxLength(30)
+        ),
+
+      new LabelBuilder()
+        .setLabel("🌐 Brand Website")
+        .setDescription(
+          "Example: https://brand.com"
+        )
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("brand_website")
+            .setStyle(TextInputStyle.Short)
+            .setValue(website)
+            .setPlaceholder(
+              "https://brand.com"
+            )
+            .setRequired(false)
+            .setMaxLength(500)
+        )
+    );
+}
+
+/* =========================================================
+   IMAGE STORAGE
+
+   Download the uploaded Discord image immediately and
+   save the bytes directly into SQLite.
+========================================================= */
+
+async function attachmentToBuffer(
+  attachment
+) {
+  const response =
+    await fetch(
+      attachment.url
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Image download failed: ${response.status}`
+    );
+  }
+
+  return Buffer.from(
+    await response.arrayBuffer()
+  );
+}
+
+/* =========================================================
+   PERSISTENT CREATOR MESSAGE
+========================================================= */
+
+async function ensurePublicMessage() {
+  const channel =
+    await client.channels.fetch(
+      process.env.DEALS_CHANNEL_ID
+    );
+
+  if (
+    !channel ||
+    !channel.isTextBased()
+  ) {
+    throw new Error(
+      "DEALS_CHANNEL_ID is invalid"
+    );
+  }
+
+  const recent =
+    await channel.messages.fetch({
+      limit: 50,
+    });
+
+  const existing =
+    recent.find(
+      (message) =>
+        message.author.id ===
+          client.user.id &&
+        message.flags.has(
+          MessageFlags.IsComponentsV2
+        )
+    );
+
+  if (existing) {
+    publicMessage =
+      await existing.edit(
+        buildHome("all")
+      );
+
+    console.log(
+      `✓ Refreshed Creator Deals: ${publicMessage.id}`
+    );
+  } else {
+    publicMessage =
+      await channel.send(
+        buildHome("all")
+      );
+
+    console.log(
+      `✓ Created Creator Deals: ${publicMessage.id}`
+    );
+  }
+
+  return publicMessage;
+}
+
+/* =========================================================
+   PERSISTENT ADMIN MESSAGE
+========================================================= */
+
+async function ensureAdminMessage() {
+  const channel =
+    await client.channels.fetch(
+      process.env
+        .DEALS_ADMIN_CHANNEL_ID
+    );
+
+  if (
+    !channel ||
+    !channel.isTextBased()
+  ) {
+    throw new Error(
+      "DEALS_ADMIN_CHANNEL_ID is invalid"
+    );
+  }
+
+  const recent =
+    await channel.messages.fetch({
+      limit: 50,
+    });
+
+  const existing =
+    recent.find(
+      (message) =>
+        message.author.id ===
+          client.user.id &&
+        message.flags.has(
+          MessageFlags.IsComponentsV2
+        )
+    );
+
+  if (existing) {
+    adminMessage =
+      await existing.edit({
+        ...buildAdminDashboard(),
+
+        /*
+         * Remove previous dashboard image attachments
+         * before adding the selected product's current image.
+         */
+        attachments: [],
+      });
+
+    console.log(
+      `✓ Refreshed Deals Admin: ${adminMessage.id}`
+    );
+  } else {
+    adminMessage =
+      await channel.send(
+        buildAdminDashboard()
+      );
+
+    console.log(
+      `✓ Created Deals Admin: ${adminMessage.id}`
+    );
+  }
+
+  return adminMessage;
+}
+
+/* =========================================================
+   REFRESH
+========================================================= */
+
+async function refreshPublic() {
+  if (!publicMessage) {
+    await ensurePublicMessage();
+    return;
+  }
+
+  try {
+    publicMessage =
+      await publicMessage.edit(
+        buildHome("all")
+      );
+  } catch (error) {
+    if (error.code === 10008) {
+      console.log(
+        "Creator Deals message was deleted — recreating it."
+      );
+
+      publicMessage = null;
+      await ensurePublicMessage();
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function refreshAdmin() {
+  if (!adminMessage) {
+    await ensureAdminMessage();
+    return;
+  }
+
+  adminMessage =
+    await adminMessage.edit({
+      ...buildAdminDashboard(),
+      attachments: [],
+    });
+}
+
+function adminOnly(interaction) {
+  return (
+    interaction.channelId ===
+    process.env
+      .DEALS_ADMIN_CHANNEL_ID
+  );
+}
+
+/* =========================================================
+   INTERACTIONS
+========================================================= */
+
+client.on(
+  "interactionCreate",
+
+  async (interaction) => {
+    try {
+
+      /* ===================================================
+         ADMIN PRODUCT SELECT
+      =================================================== */
+
+      if (
+        interaction.isStringSelectMenu() &&
+        interaction.customId ===
+          "admin:select"
+      ) {
+        if (!adminOnly(interaction)) {
+          return;
+        }
+
+        adminSelectedProductId =
+          String(
+            interaction.values[0]
+          );
+
+        await interaction.deferUpdate();
+
+        await refreshAdmin();
+
+        return;
+      }
+
+      /* ===================================================
+         BUTTONS
+      =================================================== */
+
+      if (interaction.isButton()) {
+        const id =
+          interaction.customId;
+
+        /* =================================================
+           ADMIN BUTTONS
+        ================================================= */
+
+        if (
+          id.startsWith("admin:")
+        ) {
+          if (
+            !adminOnly(interaction)
+          ) {
+            await interaction.reply({
+              content:
+                "Admin controls are only available in the admin channel.",
+
+              flags:
+                MessageFlags.Ephemeral,
+            });
+
+            return;
+          }
+
+          /* ADD PRODUCT */
+
+          if (id === "admin:add") {
+            await interaction.showModal(
+              addProductModal()
+            );
+
+            return;
+          }
+
+          /* REFRESH CREATOR DEALS */
+
+          if (
+            id ===
+            "admin:refresh"
+          ) {
+            await interaction.deferReply({
+              flags:
+                MessageFlags.Ephemeral,
+            });
+
+            await refreshPublic();
+
+            await interaction.editReply(
+              "✓ Creator Deals refreshed."
+            );
+
+            return;
+          }
+
+          /* ADD STEP 2 */
+
+          if (
+            id.startsWith(
+              "admin:add-details:"
+            )
+          ) {
+            const product =
+              productById(
+                id.split(":")[2]
+              );
+
+            if (product) {
+              await interaction.showModal(
+                dealInfoModal(
+                  product,
+                  "add"
+                )
+              );
+            }
+
+            return;
+          }
+
+
+          /* EDIT PRODUCT / IMAGE */
+
+          if (
+            id.startsWith(
+              "admin:edit-core:"
+            )
+          ) {
+            const product =
+              productById(
+                id.split(":")[2]
+              );
+
+            if (product) {
+              await interaction.showModal(
+                editCoreModal(product)
+              );
+            }
+
+            return;
+          }
+
+          /* EDIT DEAL INFO */
+
+          if (
+            id.startsWith(
+              "admin:edit-deal:"
+            )
+          ) {
+            const product =
+              productById(
+                id.split(":")[2]
+              );
+
+            if (product) {
+              await interaction.showModal(
+                dealInfoModal(
+                  product,
+                  "edit"
+                )
+              );
+            }
+
+            return;
+          }
+
+          /* ENABLE / DISABLE */
+
+          if (
+            id.startsWith(
+              "admin:toggle:"
+            )
+          ) {
+            const productId =
+              String(
+                id.split(":")[2]
+              );
+
+            db.prepare(`
+              UPDATE products
+
+              SET
+                active =
+                  CASE active
+                    WHEN 1 THEN 0
+                    ELSE 1
+                  END,
+
+                updated_at =
+                  CURRENT_TIMESTAMP
+
+              WHERE id = ?
+            `).run(productId);
+
+            await interaction.deferUpdate();
+
+            await Promise.all([
+              refreshAdmin(),
+              refreshPublic(),
+            ]);
+
+            return;
+          }
+
+          /* DELETE CONFIRMED */
+
+          if (
+            id.startsWith(
+              "admin:delete-confirm:"
+            )
+          ) {
+            const productId =
+              String(
+                id.split(":")[2]
+              );
+
+            db.prepare(`
+              DELETE FROM products
+              WHERE id = ?
+            `).run(productId);
+
+            if (
+              adminSelectedProductId ===
+              productId
+            ) {
+              adminSelectedProductId =
+                null;
+            }
+
+            await interaction.update({
+              content:
+                "✓ Product deleted.",
+
+              components: [],
+            });
+
+            await Promise.all([
+              refreshAdmin(),
+              refreshPublic(),
+            ]);
+
+            return;
+          }
+
+          /* DELETE REQUEST */
+
+          if (
+            id.startsWith(
+              "admin:delete:"
+            )
+          ) {
+            const productId =
+              String(
+                id.split(":")[2]
+              );
+
+            const product =
+              productById(productId);
+
+            if (!product) {
+              return;
+            }
+
+            await interaction.reply({
+              content:
+                `Delete **${product.name}**? This cannot be undone.`,
+
+              flags:
+                MessageFlags.Ephemeral,
+
+              components: [
+                new ActionRowBuilder()
+                  .addComponents(
+
+                    new ButtonBuilder()
+                      .setCustomId(
+                        `admin:delete-confirm:${productId}`
+                      )
+                      .setLabel(
+                        "Delete Product"
+                      )
+                      .setStyle(
+                        ButtonStyle.Danger
+                      ),
+
+                    new ButtonBuilder()
+                      .setCustomId(
+                        "admin:delete-cancel"
+                      )
+                      .setLabel("Cancel")
+                      .setStyle(
+                        ButtonStyle.Secondary
+                      )
+                  ),
+              ],
+            });
+
+            return;
+          }
+
+          /* DELETE CANCEL */
+
+          if (
+            id ===
+            "admin:delete-cancel"
+          ) {
+            await interaction.update({
+              content:
+                "Cancelled.",
+
+              components: [],
+            });
+
+            return;
+          }
+        }
+
+        /* =================================================
+           CREATOR CATEGORY
+
+           Public persistent message is NEVER changed by a
+           creator. Filters open privately.
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "category:"
+          )
+        ) {
+          const category =
+            id.split(":")[1];
+
+          await interaction.update(
+            buildHome(category)
+          );
+
+          return;
+        }
+
+        /* =================================================
+           PRODUCT VIEW
+
+           Private / ephemeral.
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "product:"
+          )
+        ) {
+          const product =
+            productById(
+              id.split(":")[1]
+            );
+
+          if (!product) {
+            return;
+          }
+
+          await interaction.update(
+            buildProductDetails(product)
+          );
+
+          return;
+        }
+
+        /* =================================================
+           EPHEMERAL HOME
+        ================================================= */
+
+        if (
+          id ===
+          "deals:home"
+        ) {
+          await interaction.update(
+            buildHome("all")
+          );
+
+          return;
+        }
+
+        /* =================================================
+           REQUEST PRODUCT
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "request:"
+          )
+        ) {
+          const productId =
+            id.split(":")[1];
+
+          const product =
+            productById(
+              productId
+            );
+
+          if (!product) {
+            return;
+          }
+
+          const handle =
+            getTikTok(
+              interaction.user.id
+            );
+
+          if (!handle) {
+            await interaction.showModal(
+              tikTokModal(
+                productId
+              )
+            );
+
+            return;
+          }
+
+          await interaction.update({
+            ...buildConfirm(
+              product,
+              handle
+            ),
+
+            attachments: [],
+          });
+
+          return;
+        }
+
+        /* =================================================
+           CONFIRM PRODUCT REQUEST
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "confirm:"
+          )
+        ) {
+          const productId =
+            String(
+              id.split(":")[1]
+            );
+
+          const product =
+            productById(
+              productId
+            );
+
+          if (!product) {
+            return;
+          }
+
+          const handle =
+            getTikTok(
+              interaction.user.id
+            );
+
+          db.prepare(`
+            INSERT INTO product_requests (
+              discord_user_id,
+              product_id,
+              tiktok_handle
+            )
+            VALUES (?, ?, ?)
+          `).run(
+            interaction.user.id,
+            productId,
+            handle || ""
+          );
+
+          await interaction.update({
+            ...buildSubmitted(
+              product
+            ),
+
+            attachments: [],
+          });
+
+          return;
+        }
+      }
+
+      /* ===================================================
+         MODALS
+      =================================================== */
+
+      if (
+        interaction.isModalSubmit()
+      ) {
+        const id =
+          interaction.customId;
+
+        /* =================================================
+           ADMIN ADD PRODUCT — STEP 1
+        ================================================= */
+
+        if (
+          id ===
+          "admin:add-core"
+        ) {
+          if (
+            !adminOnly(interaction)
+          ) {
+            return;
+          }
+
+          const uploadedFiles =
+            interaction.fields
+              .getUploadedFiles(
+                "image",
+                true
+              );
+
+          const attachment =
+            uploadedFiles.first();
+
+          const imageBlob =
+            await attachmentToBuffer(
+              attachment
+            );
+
+          const productName =
+            interaction.fields
+              .getTextInputValue("name")
+              .trim();
+
+          const productId =
+            makeProductId(productName);
+
+          db.prepare(`
+              INSERT INTO products (
+                id,
+                name,
+                brand,
+                category,
+                commission,
+
+                shop_ads,
+                free_sample,
+                requirements,
+                brand_website,
+
+                image_blob,
+                image_filename,
+                image_mime,
+
+                active
+              )
+
+              VALUES (
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+
+                ?,
+                ?,
+                ?,
+                ?,
+
+                ?,
+                ?,
+                ?,
+
+                0
+              )
+            `).run(
+
+              productId,
+
+              productName,
+
+              interaction.fields
+                .getTextInputValue(
+                  "brand"
+                )
+                .trim(),
+
+              interaction.fields
+                .getTextInputValue(
+                  "category"
+                )
+                .trim(),
+
+              interaction.fields
+                .getTextInputValue(
+                  "commission"
+                )
+                .trim(),
+
+              "—",
+
+              "Auto-Approved",
+
+              "1 TikTok Shoppable Video",
+
+              "",
+
+              imageBlob,
+
+              attachment.name ||
+                "product-image",
+
+              attachment.contentType ||
+                "image/*"
+            );
+
+          adminSelectedProductId =
+            productId;
+
+          await interaction.reply({
+            content:
+              "✓ Image and basic product info saved. Finish the deal details to publish it.",
+
+            flags:
+              MessageFlags.Ephemeral,
+
+            components: [
+              new ActionRowBuilder()
+                .addComponents(
+
+                  new ButtonBuilder()
+                    .setCustomId(
+                      `admin:add-details:${productId}`
+                    )
+                    .setLabel(
+                      "Continue: Deal Details"
+                    )
+                    .setStyle(
+                      ButtonStyle.Primary
+                    )
+                ),
+            ],
+          });
+
+          await refreshAdmin();
+
+          return;
+        }
+
+        /* =================================================
+           ADD / EDIT DEAL INFO
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "admin:add-deal:"
+          ) ||
+          id.startsWith(
+            "admin:edit-deal-submit:"
+          )
+        ) {
+          if (!adminOnly(interaction)) {
+            return;
+          }
+
+          const productId =
+            String(
+              id.split(":").pop()
+            );
+
+          const isAdd =
+            id.startsWith(
+              "admin:add-deal:"
+            );
+
+          let website =
+            interaction.fields
+              .getTextInputValue(
+                "brand_website"
+              )
+              .trim();
+
+          if (
+            website &&
+            !/^https?:\/\//i.test(
+              website
+            )
+          ) {
+            website =
+              `https://${website}`;
+          }
+
+          db.prepare(`
+            UPDATE products
+
+            SET
+              description = ?,
+              commission = ?,
+              shop_ads = ?,
+              brand_website = ?,
+
+              free_sample = 'Auto-Approved',
+              requirements = '1 TikTok Shoppable Video',
+
+              active =
+                CASE
+                  WHEN ? = 1 THEN 1
+                  ELSE active
+                END,
+
+              updated_at =
+                CURRENT_TIMESTAMP
+
+            WHERE id = ?
+          `).run(
+
+            interaction.fields
+              .getTextInputValue(
+                "description"
+              )
+              .trim(),
+
+            interaction.fields
+              .getTextInputValue(
+                "commission"
+              )
+              .trim(),
+
+            interaction.fields
+              .getTextInputValue(
+                "shop_ads"
+              )
+              .trim(),
+
+            website,
+
+            isAdd ? 1 : 0,
+
+            productId
+          );
+
+          await interaction.reply({
+            content:
+              isAdd
+                ? "✓ Product published to Creator Deals."
+                : "✓ Deal info updated.",
+
+            flags:
+              MessageFlags.Ephemeral,
+          });
+
+          await Promise.all([
+            refreshAdmin(),
+            refreshPublic(),
+          ]);
+
+          return;
+        }
+
+        /* =================================================
+           EDIT PRODUCT + OPTIONAL NEW IMAGE
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "admin:edit-core-submit:"
+          )
+        ) {
+          if (
+            !adminOnly(interaction)
+          ) {
+            return;
+          }
+
+          const productId =
+            String(
+              id.split(":").pop()
+            );
+
+          const uploads =
+            interaction.fields
+              .getUploadedFiles(
+                "image",
+                false
+              );
+
+          const attachment =
+            uploads?.first?.() ||
+            null;
+
+          if (attachment) {
+            const imageBlob =
+              await attachmentToBuffer(
+                attachment
+              );
+
+            db.prepare(`
+              UPDATE products
+
+              SET
+                name = ?,
+                brand = ?,
+                category = ?,
+
+                image_blob = ?,
+                image_filename = ?,
+                image_mime = ?,
+                image_url = NULL,
+
+                updated_at =
+                  CURRENT_TIMESTAMP
+
+              WHERE id = ?
+            `).run(
+
+              interaction.fields
+                .getTextInputValue(
+                  "name"
+                )
+                .trim(),
+
+              interaction.fields
+                .getTextInputValue(
+                  "brand"
+                )
+                .trim(),
+
+              interaction.fields
+                .getTextInputValue(
+                  "category"
+                )
+                .trim(),
+
+              imageBlob,
+
+              attachment.name ||
+                "product-image",
+
+              attachment.contentType ||
+                "image/*",
+
+              productId
+            );
+          } else {
+            db.prepare(`
+              UPDATE products
+
+              SET
+                name = ?,
+                brand = ?,
+                category = ?,
+                updated_at =
+                  CURRENT_TIMESTAMP
+
+              WHERE id = ?
+            `).run(
+
+              interaction.fields
+                .getTextInputValue(
+                  "name"
+                )
+                .trim(),
+
+              interaction.fields
+                .getTextInputValue(
+                  "brand"
+                )
+                .trim(),
+
+              interaction.fields
+                .getTextInputValue(
+                  "category"
+                )
+                .trim(),
+
+              productId
+            );
+          }
+
+          await interaction.reply({
+            content:
+              "✓ Product and image updated.",
+
+            flags:
+              MessageFlags.Ephemeral,
+          });
+
+          await Promise.all([
+            refreshAdmin(),
+            refreshPublic(),
+          ]);
+
+          return;
+        }
+
+        /* =================================================
+           CREATOR TIKTOK
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "tiktok:"
+          )
+        ) {
+          const productId =
+            String(
+              id.split(":")[1]
+            );
+
+          const product =
+            productById(
+              productId
+            );
+
+          if (!product) {
+            return;
+          }
+
+          let handle =
+            interaction.fields
+              .getTextInputValue(
+                "tiktok"
+              )
+              .trim();
+
+          if (
+            !handle.startsWith("@")
+          ) {
+            handle =
+              `@${handle}`;
+          }
+
+          saveTikTok(
+            interaction.user.id,
+            handle
+          );
+
+          if (
+            interaction.isFromMessage()
+          ) {
+            await interaction.update({
+              ...buildConfirm(
+                product,
+                handle
+              ),
+
+              attachments: [],
+            });
+          } else {
+            await interaction.reply({
+              ...buildConfirm(
+                product,
+                handle
+              ),
+
+              flags: [
+                MessageFlags.IsComponentsV2,
+                MessageFlags.Ephemeral,
+              ],
+            });
+          }
+
+          return;
+        }
+      }
+    } catch (error) {
+      console.error(error);
+
+      if (
+        !interaction.replied &&
+        !interaction.deferred
+      ) {
+        await interaction
+          .reply({
+            content:
+              `Something went wrong: ${error.message}`,
+
+            flags:
+              MessageFlags.Ephemeral,
+          })
+          .catch(() => {});
+      }
+    }
+  }
+);
+
+/* =========================================================
+   START
+========================================================= */
+
+client.once(
+  "clientReady",
+
+  async () => {
+    console.log(
+      `✓ Logged in as ${client.user.tag}`
+    );
+
+    if (
+      !process.env.DEALS_CHANNEL_ID
+    ) {
+      throw new Error(
+        "DEALS_CHANNEL_ID is missing from .env"
+      );
+    }
+
+    if (
+      !process.env
+        .DEALS_ADMIN_CHANNEL_ID
+    ) {
+      throw new Error(
+        "DEALS_ADMIN_CHANNEL_ID is missing from .env"
+      );
+    }
+
+    await ensurePublicMessage();
+
+    await ensureAdminMessage();
+  }
+);
+
+client.login(
+  process.env.DISCORD_TOKEN
+);
