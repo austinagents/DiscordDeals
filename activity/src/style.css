@@ -1802,6 +1802,323 @@ button {
 }
 
 /* =========================================================
+   DISCORD ACTIVITY — FOCUSED LAYOUT
+
+   Discord's focused mode is the canonical Creator Deals
+   desktop experience.
+
+   Chat-visible / grid / PIP continue using the compact
+   Activity geometry above.
+   ========================================================= */
+
+html[data-discord-layout="focused"]
+.app-shell {
+  min-height: 100dvh;
+}
+
+
+/* Give focused mode a real application canvas. */
+
+html[data-discord-layout="focused"]
+.content,
+html[data-discord-layout="focused"]
+.detail-page {
+  width:
+    min(
+      1380px,
+      calc(100% - 64px)
+    );
+
+  padding:
+    30px 0 56px;
+}
+
+
+/* Marketplace heading */
+
+html[data-discord-layout="focused"]
+.hero {
+  margin-bottom: 24px;
+  gap: 28px;
+}
+
+html[data-discord-layout="focused"]
+.hero h2 {
+  font-size:
+    clamp(
+      30px,
+      3.2vw,
+      40px
+    );
+}
+
+html[data-discord-layout="focused"]
+.hero p {
+  margin-top: 7px;
+  font-size: 15px;
+}
+
+html[data-discord-layout="focused"]
+.deal-count {
+  min-width: 82px;
+  padding: 12px 16px;
+  font-size: 22px;
+}
+
+
+/* Categories */
+
+html[data-discord-layout="focused"]
+.tabs {
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+html[data-discord-layout="focused"]
+.tab {
+  padding:
+    9px 16px;
+
+  font-size: 13px;
+}
+
+
+/* Product grid
+ *
+ * Focused desktop gets a wider, denser marketplace.
+ * Cards remain intentionally smaller than a normal website.
+ */
+
+html[data-discord-layout="focused"]
+.product-grid {
+  grid-template-columns:
+    repeat(
+      4,
+      minmax(0,1fr)
+    );
+
+  gap: 16px;
+}
+
+html[data-discord-layout="focused"]
+.product-card {
+  border-radius: 15px;
+}
+
+html[data-discord-layout="focused"]
+.product-image-wrap {
+  aspect-ratio: 4 / 3;
+}
+
+html[data-discord-layout="focused"]
+.product-body {
+  padding:
+    13px 14px 14px;
+}
+
+html[data-discord-layout="focused"]
+.product-brand {
+  font-size: 11px;
+}
+
+html[data-discord-layout="focused"]
+.product-body h3 {
+  font-size: 16px;
+}
+
+html[data-discord-layout="focused"]
+.metrics {
+  margin-top: 12px;
+  gap: 7px;
+}
+
+html[data-discord-layout="focused"]
+.metrics > div {
+  padding:
+    8px 9px;
+}
+
+html[data-discord-layout="focused"]
+.metrics span {
+  font-size: 9px;
+}
+
+html[data-discord-layout="focused"]
+.metrics strong {
+  font-size: 13px;
+}
+
+html[data-discord-layout="focused"]
+.card-footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  font-size: 11px;
+}
+
+
+/* Focused product detail */
+
+html[data-discord-layout="focused"]
+.detail-page {
+  padding-top: 24px;
+}
+
+html[data-discord-layout="focused"]
+.back-button {
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+html[data-discord-layout="focused"]
+.detail-layout {
+  grid-template-columns:
+    minmax(0,1.08fr)
+    minmax(380px,.92fr);
+
+  gap: 24px;
+}
+
+html[data-discord-layout="focused"]
+.detail-image-panel {
+  aspect-ratio: 4 / 3;
+  border-radius: 18px;
+}
+
+html[data-discord-layout="focused"]
+.detail-info {
+  padding: 26px;
+  border-radius: 18px;
+}
+
+html[data-discord-layout="focused"]
+.detail-info h2 {
+  font-size:
+    clamp(
+      30px,
+      3vw,
+      38px
+    );
+}
+
+html[data-discord-layout="focused"]
+.detail-brand {
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+html[data-discord-layout="focused"]
+.detail-metrics {
+  gap: 9px;
+  margin-bottom: 22px;
+}
+
+html[data-discord-layout="focused"]
+.metric-card {
+  padding: 13px;
+}
+
+html[data-discord-layout="focused"]
+.metric-card strong {
+  font-size: 15px;
+}
+
+html[data-discord-layout="focused"]
+.detail-section {
+  padding: 19px 0;
+}
+
+html[data-discord-layout="focused"]
+.detail-section p {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+html[data-discord-layout="focused"]
+.requirement-card {
+  padding: 14px;
+  font-size: 13px;
+}
+
+
+/* Large focused desktop gets five cards without
+ * making normal Activity windows excessively dense.
+ */
+
+@media (
+  min-width: 1500px
+) {
+  html[data-discord-layout="focused"]
+  .content {
+    width:
+      min(
+        1500px,
+        calc(100% - 72px)
+      );
+  }
+
+  html[data-discord-layout="focused"]
+  .product-grid {
+    grid-template-columns:
+      repeat(
+        5,
+        minmax(0,1fr)
+      );
+  }
+}
+
+
+/* Focused mode still needs to collapse gracefully when
+ * Discord's usable width is smaller.
+ */
+
+@media (
+  max-width: 1120px
+) {
+  html[data-discord-layout="focused"]
+  .product-grid {
+    grid-template-columns:
+      repeat(
+        3,
+        minmax(0,1fr)
+      );
+  }
+
+  html[data-discord-layout="focused"]
+  .content,
+  html[data-discord-layout="focused"]
+  .detail-page {
+    width:
+      calc(100% - 40px);
+  }
+}
+
+
+@media (
+  max-width: 820px
+) {
+  html[data-discord-layout="focused"]
+  .product-grid {
+    grid-template-columns:
+      repeat(
+        2,
+        minmax(0,1fr)
+      );
+  }
+
+  html[data-discord-layout="focused"]
+  .detail-layout {
+    grid-template-columns:
+      1fr;
+  }
+
+  html[data-discord-layout="focused"]
+  .detail-image-panel {
+    aspect-ratio: 16 / 10;
+  }
+}
+
+
+/* =========================================================
    COMPACT / NARROW DISCORD DESKTOP ACTIVITY
    ========================================================= */
 

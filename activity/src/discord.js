@@ -1,9 +1,100 @@
 import {
-  DiscordSDK
+  DiscordSDK,
+  Common
 } from "@discord/embedded-app-sdk";
 
 let discordSdk = null;
 let auth = null;
+
+let layoutTrackingStarted =
+  false;
+
+
+function applyDiscordLayoutMode(
+  layoutMode
+) {
+  let mode =
+    "unknown";
+
+  switch (layoutMode) {
+    case Common
+      .LayoutModeTypeObject
+      .FOCUSED:
+      mode = "focused";
+      break;
+
+    case Common
+      .LayoutModeTypeObject
+      .PIP:
+      mode = "pip";
+      break;
+
+    case Common
+      .LayoutModeTypeObject
+      .GRID:
+      mode = "grid";
+      break;
+
+    default:
+      mode = "unknown";
+  }
+
+  document.documentElement
+    .dataset.discordLayout =
+      mode;
+
+  console.log(
+    `✓ Discord Activity layout: ${mode}`
+  );
+}
+
+
+async function startLayoutTracking(
+  sdk
+) {
+  if (
+    layoutTrackingStarted ||
+    !sdk
+  ) {
+    return;
+  }
+
+  layoutTrackingStarted =
+    true;
+
+  const handleLayoutUpdate =
+    (update) => {
+      applyDiscordLayoutMode(
+        update?.layout_mode
+      );
+    };
+
+  /*
+   * Discord recommends the compat subscription because
+   * older clients expose PIP updates differently.
+   */
+  if (
+    typeof sdk
+      .subscribeToLayoutModeUpdatesCompat ===
+      "function"
+  ) {
+    await sdk
+      .subscribeToLayoutModeUpdatesCompat(
+        handleLayoutUpdate
+      );
+
+    return;
+  }
+
+  /*
+   * Fallback for clients / SDK versions that only expose
+   * the standard Activity layout event.
+   */
+  await sdk.subscribe(
+    "ACTIVITY_LAYOUT_MODE_UPDATE",
+    handleLayoutUpdate
+  );
+}
 
 function isLocalDevelopment() {
   return (
@@ -79,6 +170,10 @@ export async function initializeDiscord() {
 
   console.log(
     "✓ Discord Activity SDK ready"
+  );
+
+  await startLayoutTracking(
+    sdk
   );
 
   const {
