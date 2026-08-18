@@ -247,14 +247,48 @@ function App() {
     const product =
       requestState.product;
 
-    await api.requestProduct(
-      product.id
-    );
+    try {
+      await api.requestProduct(
+        product.id
+      );
 
-    setRequestState({
-      stage: "submitted",
-      product
-    });
+      setRequestState({
+        stage: "submitted",
+        product
+      });
+
+    } catch (err) {
+
+      /*
+       * A duplicate request means the creator's request
+       * already exists successfully in Partnerlinks.
+       * Never expose the raw API error to the creator.
+       */
+      if (
+        String(
+          err?.message || ""
+        ).toLowerCase().includes(
+          "already requested"
+        )
+      ) {
+        setRequestState({
+          stage: "submitted",
+          product
+        });
+
+        return;
+      }
+
+      console.error(
+        "Product request failed:",
+        err
+      );
+
+      setRequestState({
+        stage: "request-error",
+        product
+      });
+    }
   }
 
 

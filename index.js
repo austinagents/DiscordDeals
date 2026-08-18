@@ -82,6 +82,32 @@ db.exec(`
 `);
 
 /* =========================================================
+   REQUEST DELIVERY TRACKING
+========================================================= */
+
+const requestColumns =
+  new Set(
+    db.prepare(
+      "PRAGMA table_info(product_requests)"
+    )
+      .all()
+      .map((row) => row.name)
+  );
+
+if (
+  !requestColumns.has("sent_at")
+) {
+  db.exec(
+    "ALTER TABLE product_requests ADD COLUMN sent_at TEXT"
+  );
+
+  console.log(
+    "✓ Added product_requests.sent_at"
+  );
+}
+
+
+/* =========================================================
    INITIAL PRODUCTS
 
    These only seed the DB if the DB is empty.
@@ -860,7 +886,7 @@ function cleanAdminValue(value, fallback = "—") {
   return String(value).trim();
 }
 
-function buildAdminDashboard() {
+function buildRequestDashboard() {
   const products = allProducts();
   const selected = getAdminSelected();
 
@@ -1365,6 +1391,216 @@ async function attachmentToBuffer(
 }
 
 /* =========================================================
+   REQUEST DASHBOARD
+
+   Private #deals dashboard only.
+   Does NOT modify Creator Deals Activity launcher behavior.
+========================================================= */
+
+let lastRequestDashboardSignature =
+  null;
+
+
+function requestDashboardRows() {
+  return db
+    .prepare(`
+      SELECT
+        p.id AS product_id,
+        p.name,
+        p.brand,
+
+        COUNT(r.id)
+          AS total_requests,
+
+        SUM(
+          CASE
+            WHEN r.status = 'sent'
+              THEN 0
+            ELSE 1
+          END
+        )
+          AS new_requests,
+
+        MAX(r.created_at)
+          AS last_request_at,
+
+        MAX(r.sent_at)
+          AS last_sent_at
+
+      FROM products p
+
+      INNER JOIN product_requests r
+        ON CAST(r.product_id AS TEXT) =
+           CAST(p.id AS TEXT)
+
+      GROUP BY
+        p.id,
+        p.name,
+        p.brand
+
+      ORDER BY
+        datetime(last_request_at) DESC
+
+      LIMIT 10
+    `)
+    .all();
+}
+
+
+function buildRequestDashboard() {
+  const rows =
+    requestDashboardRows();
+
+  const totalRequests =
+    rows.reduce(
+      (sum, row) =>
+        sum +
+        Number(
+          row.total_requests || 0
+        ),
+      0
+    );
+
+  const totalNew =
+    rows.reduce(
+      (sum, row) =>
+        sum +
+        Number(
+          row.new_requests || 0
+        ),
+      0
+    );
+
+  const container =
+    new ContainerBuilder()
+      .setAccentColor(
+        totalNew > 0
+          ? 0xF0B232
+          : 0x23A559
+      )
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(
+            [
+              "## 📦 Creator Deal Requests",
+              totalRequests
+                ? `**${totalRequests} requests** • ${totalNew} new`
+                : "No product requests yet.",
+              "",
+              "-# New requests automatically appear here. Mark a product sent after you send its current batch."
+            ].join("\n")
+          )
+      );
+
+  if (!rows.length) {
+    return v2([
+      container
+    ]);
+  }
+
+  rows.forEach(
+    (row, index) => {
+      const newCount =
+        Number(
+          row.new_requests || 0
+        );
+
+      const total =
+        Number(
+          row.total_requests || 0
+        );
+
+      if (index > 0) {
+        container
+          .addSeparatorComponents(
+            new SeparatorBuilder()
+              .setSpacing(
+                SeparatorSpacingSize.Small
+              )
+              .setDivider(true)
+          );
+      }
+
+      container
+        .addSectionComponents(
+          new SectionBuilder()
+
+            .addTextDisplayComponents(
+              new TextDisplayBuilder()
+                .setContent(
+                  [
+                    `### ${row.name}`,
+                    `**${row.brand}** • ${total} ${total === 1 ? "request" : "requests"}`,
+                    newCount > 0
+                      ? `🟡 **${newCount} new ${newCount === 1 ? "request" : "requests"}**`
+                      : "🟢 **Sent**"
+                  ].join("\n")
+                )
+            )
+
+            .setButtonAccessory(
+              new ButtonBuilder()
+
+                .setCustomId(
+                  `requests:sent:${row.product_id}`
+                )
+
+                .setLabel(
+                  newCount > 0
+                    ? "Mark Sent ✓"
+                    : "Sent ✓"
+                )
+
+                .setStyle(
+                  newCount > 0
+                    ? ButtonStyle.Success
+                    : ButtonStyle.Secondary
+                )
+
+                .setDisabled(
+                  newCount === 0
+                )
+            )
+        );
+    }
+  );
+
+  return v2([
+    container
+  ]);
+}
+
+
+function requestDashboardSignature() {
+  return JSON.stringify(
+    requestDashboardRows()
+  );
+}
+
+
+async function refreshRequestDashboardIfChanged(
+  force = false
+) {
+  const signature =
+    requestDashboardSignature();
+
+  if (
+    !force &&
+    signature ===
+      lastRequestDashboardSignature
+  ) {
+    return;
+  }
+
+  lastRequestDashboardSignature =
+    signature;
+
+  await refreshAdmin();
+}
+
+
+/* =========================================================
    PERSISTENT CREATOR MESSAGE
 ========================================================= */
 
@@ -1459,7 +1695,7 @@ async function ensureAdminMessage() {
   if (existing) {
     adminMessage =
       await existing.edit({
-        ...buildAdminDashboard(),
+        ...buildRequestDashboard(),
 
         /*
          * Remove previous dashboard image attachments
@@ -1474,7 +1710,7 @@ async function ensureAdminMessage() {
   } else {
     adminMessage =
       await channel.send(
-        buildAdminDashboard()
+        buildRequestDashboard()
       );
 
     console.log(
@@ -1523,7 +1759,7 @@ async function refreshAdmin() {
 
   adminMessage =
     await adminMessage.edit({
-      ...buildAdminDashboard(),
+      ...buildRequestDashboard(),
       attachments: [],
     });
 }
@@ -1569,6 +1805,54 @@ client.on(
 
 
     try {
+
+      /* ===================================================
+         REQUEST DASHBOARD — MARK CURRENT BATCH SENT
+      =================================================== */
+
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(
+          "requests:sent:"
+        )
+      ) {
+        if (
+          !adminOnly(interaction)
+        ) {
+          return;
+        }
+
+        await interaction.deferUpdate();
+
+        const productId =
+          interaction.customId
+            .slice(
+              "requests:sent:".length
+            );
+
+        db.prepare(`
+          UPDATE product_requests
+
+          SET
+            status = 'sent',
+            sent_at = CURRENT_TIMESTAMP
+
+          WHERE
+            CAST(product_id AS TEXT) = ?
+
+          AND
+            status != 'sent'
+        `).run(
+          String(productId)
+        );
+
+        await refreshRequestDashboardIfChanged(
+          true
+        );
+
+        return;
+      }
+
 
       /* ===================================================
          ADMIN PRODUCT SELECT
@@ -2636,6 +2920,27 @@ client.once(
     await ensurePublicMessage();
 
     await ensureAdminMessage();
+
+    lastRequestDashboardSignature =
+      requestDashboardSignature();
+
+    /*
+     * Activity requests are written by the API process.
+     * Check SQLite every 5 seconds and update Discord only
+     * when something actually changed.
+     */
+    setInterval(
+      () => {
+        refreshRequestDashboardIfChanged()
+          .catch((error) => {
+            console.error(
+              "Request dashboard refresh failed:",
+              error
+            );
+          });
+      },
+      5000
+    );
   }
 );
 
