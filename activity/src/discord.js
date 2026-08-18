@@ -43,8 +43,7 @@ function getDiscordSdk() {
 
 export async function initializeDiscord() {
   /*
-   * Keep localhost easy to develop.
-   * Production never uses this identity.
+   * Localhost development.
    */
   if (isLocalDevelopment()) {
     console.log(
@@ -58,6 +57,18 @@ export async function initializeDiscord() {
     return {
       auth,
       accessToken: null
+    };
+  }
+
+  /*
+   * Normal partnerlinks.app browser.
+   * Do not initialize Discord's Embedded App SDK.
+   */
+  if (!isDiscordActivity()) {
+    return {
+      auth: null,
+      accessToken: null,
+      browser: true
     };
   }
 

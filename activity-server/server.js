@@ -545,7 +545,6 @@ app.get(
 
 app.get(
   "/api/products",
-  requireUser,
   (req, res) => {
     const category =
       String(
@@ -589,7 +588,6 @@ app.get(
 
 app.get(
   "/api/products/:id",
-  requireUser,
   (req, res) => {
     const product =
       productById(

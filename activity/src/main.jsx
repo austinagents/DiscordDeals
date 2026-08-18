@@ -35,39 +35,10 @@ const CATEGORIES = [
 
 
 function App() {
-  const browserOnly =
+  const browserMode =
     !isDiscordActivity() &&
     window.location.hostname !== "localhost" &&
     window.location.hostname !== "127.0.0.1";
-
-  if (browserOnly) {
-    return (
-      <div className="browser-landing">
-        <div className="browser-landing-card">
-          <div className="eyebrow">
-            PARTNERLINKS
-          </div>
-
-          <h1>
-            Creator Deals
-          </h1>
-
-          <p>
-            Creator Deals is available
-            inside the UGC NETWORK
-            Discord server.
-          </p>
-
-          <a
-            className="browser-admin-link"
-            href="/admin/"
-          >
-            Admin →
-          </a>
-        </div>
-      </div>
-    );
-  }
 
   const [loading, setLoading] =
     useState(true);
@@ -119,26 +90,49 @@ function App() {
 
 
   useEffect(() => {
+
     (async () => {
+
       try {
-        const {
-          accessToken
-        } =
+
+        const session =
           await initializeDiscord();
 
         setAccessToken(
-          accessToken
+          session.accessToken
         );
 
+        /*
+         * Normal partnerlinks.app browser:
+         * marketplace is public, so only load products.
+         */
+        if (session.browser) {
+
+          const productData =
+            await api.products("all");
+
+          setProducts(
+            productData
+          );
+
+          return;
+        }
+
+        /*
+         * Discord Activity:
+         * load authenticated creator data + products.
+         */
         const [
           meData,
           profileData,
           productData
         ] =
           await Promise.all([
+
             api.me(),
             api.profile(),
             api.products("all")
+
           ]);
 
         setMe(meData);
@@ -150,16 +144,23 @@ function App() {
         setProducts(
           productData
         );
+
       } catch (err) {
+
         console.error(err);
 
         setError(
           err.message
         );
+
       } finally {
+
         setLoading(false);
+
       }
+
     })();
+
   }, []);
 
 
@@ -308,29 +309,31 @@ function App() {
               </p>
             </div>
 
-            <div className="hero-actions">
-              {me?.isAdmin && (
+            {!browserMode && (
+              <div className="hero-actions">
+                {me?.isAdmin && (
+                  <button
+                    className="icon-button"
+                    onClick={openAdmin}
+                    title="Admin"
+                    aria-label="Admin"
+                  >
+                    ◈
+                  </button>
+                )}
+
                 <button
                   className="icon-button"
-                  onClick={openAdmin}
-                  title="Admin"
-                  aria-label="Admin"
+                  onClick={() =>
+                    setSettingsOpen(true)
+                  }
+                  title="Settings"
+                  aria-label="Settings"
                 >
-                  ◈
+                  ⚙
                 </button>
-              )}
-
-              <button
-                className="icon-button"
-                onClick={() =>
-                  setSettingsOpen(true)
-                }
-                title="Settings"
-                aria-label="Settings"
-              >
-                ⚙
-              </button>
-            </div>
+              </div>
+            )}
           </section>
 
 
@@ -400,6 +403,10 @@ function App() {
       {selected && (
         <ProductDetail
           product={selected}
+
+          browserMode={
+            browserMode
+          }
 
           onBack={() =>
             setSelected(null)
@@ -572,6 +579,7 @@ function ProductCard({
 
 function ProductDetail({
   product,
+  browserMode,
   onBack,
   onRequest
 }) {
@@ -676,9 +684,19 @@ function ProductDetail({
 
             <button
               className="primary-button"
-              onClick={onRequest}
+              onClick={
+                browserMode
+                  ? () => {
+                      alert(
+                        "Open Creator Deals inside Discord to request this product."
+                      );
+                    }
+                  : onRequest
+              }
             >
-              Request Product
+              {browserMode
+                ? "Request in Discord"
+                : "Request Product"}
             </button>
 
 
