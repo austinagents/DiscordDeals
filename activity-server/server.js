@@ -208,9 +208,11 @@ function normalizeProduct(
         : "—",
 
     free_sample:
+      row.free_sample ||
       "Auto-Approved",
 
     requirements:
+      row.requirements ||
       "1 TikTok Shoppable Video"
   };
 }
@@ -1013,8 +1015,10 @@ app.post(
       req.body.shop_ads ||
       "—",
 
+      req.body.free_sample ||
       "Auto-Approved",
 
+      req.body.requirements ||
       "1 TikTok Shoppable Video",
 
       req.body.brand_website ||

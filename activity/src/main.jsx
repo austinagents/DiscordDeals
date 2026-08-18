@@ -624,7 +624,10 @@ function ProductDetail({
 
             <Metric
               label="Free Sample"
-              value="Auto-Approved"
+              value={
+                product.free_sample ||
+                "Auto-Approved"
+              }
             />
 
           </div>
@@ -648,7 +651,8 @@ function ProductDetail({
             </span>
 
             <strong>
-              1 TikTok Shoppable Video
+              {product.requirements ||
+                "1 TikTok Shoppable Video"}
             </strong>
           </div>
 
@@ -865,7 +869,8 @@ function RequestModal({
           </span>
 
           <strong>
-            Auto-Approved
+            {state.product.free_sample ||
+              "Auto-Approved"}
           </strong>
         </div>
 
