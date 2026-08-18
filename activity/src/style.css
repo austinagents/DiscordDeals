@@ -1802,6 +1802,305 @@ button {
 }
 
 /* =========================================================
+   DISCORD ACTIVITY — COMPACT PRODUCT DETAIL GEOMETRY
+
+   Goal:
+   - fit the important deal content inside the Activity viewport
+   - keep Request Product visible without excessive page scrolling
+   - preserve all existing product / request logic
+   ========================================================= */
+
+.detail-page {
+  width:
+    min(
+      1040px,
+      calc(100% - 28px)
+    );
+
+  padding:
+    12px 0 22px;
+}
+
+.back-button {
+  margin-bottom: 9px;
+  padding: 3px 0;
+  font-size: 11px;
+}
+
+.detail-layout {
+  grid-template-columns:
+    minmax(0, .95fr)
+    minmax(320px, 1.05fr);
+
+  gap: 14px;
+
+  align-items: stretch;
+}
+
+/*
+ * Stop product art from consuming most of the Activity height.
+ */
+.detail-image-panel {
+  min-height: 0;
+
+  height:
+    min(
+      50dvh,
+      430px
+    );
+
+  aspect-ratio: auto;
+
+  border-radius: 13px;
+}
+
+.detail-image-panel img {
+  width: 100%;
+  height: 100%;
+
+  object-fit: cover;
+}
+
+/*
+ * Right side becomes a compact Activity panel rather than
+ * a browser-sized product page.
+ */
+.detail-info {
+  height:
+    min(
+      50dvh,
+      430px
+    );
+
+  min-height: 0;
+
+  padding: 16px;
+
+  border-radius: 13px;
+
+  display: flex;
+  flex-direction: column;
+
+  overflow: hidden;
+}
+
+.category-label {
+  flex: 0 0 auto;
+
+  padding: 4px 7px;
+
+  font-size: 8px;
+}
+
+.detail-info h2 {
+  flex: 0 0 auto;
+
+  margin:
+    8px 0 2px;
+
+  font-size:
+    clamp(
+      19px,
+      2.3vw,
+      27px
+    );
+
+  line-height: 1.04;
+}
+
+.detail-brand {
+  flex: 0 0 auto;
+
+  margin-bottom: 11px;
+
+  font-size: 11px;
+}
+
+.detail-metrics {
+  flex: 0 0 auto;
+
+  grid-template-columns:
+    repeat(
+      3,
+      minmax(0,1fr)
+    );
+
+  gap: 6px;
+
+  margin-bottom: 10px;
+}
+
+.metric-card {
+  min-width: 0;
+
+  padding: 8px;
+
+  border-radius: 8px;
+}
+
+.metric-card span {
+  margin-bottom: 2px;
+
+  font-size: 7px;
+}
+
+.metric-card strong {
+  font-size: 12px;
+}
+
+/*
+ * Description gets the flexible middle space.
+ * Long descriptions scroll INSIDE the info card instead of
+ * forcing the entire Discord Activity page to become huge.
+ */
+.detail-section {
+  flex:
+    1 1 auto;
+
+  min-height: 0;
+
+  padding:
+    10px 0;
+
+  overflow-y: auto;
+
+  scrollbar-width: thin;
+}
+
+.detail-section h4,
+.requirement-card span {
+  margin-bottom: 4px;
+
+  font-size: 8px;
+}
+
+.detail-section p {
+  font-size: 11px;
+
+  line-height: 1.36;
+}
+
+.requirement-card {
+  flex: 0 0 auto;
+
+  gap: 2px;
+
+  padding: 9px;
+
+  border-radius: 8px;
+
+  font-size: 11px;
+}
+
+.detail-buttons {
+  flex: 0 0 auto;
+
+  grid-template-columns:
+    1fr auto;
+
+  gap: 6px;
+
+  margin-top: 10px;
+}
+
+.detail-buttons
+.primary-button,
+.detail-buttons
+.secondary-button {
+  min-height: 34px;
+
+  padding:
+    0 12px;
+
+  border-radius: 8px;
+
+  font-size: 11px;
+}
+
+
+/* Constrained Discord desktop / chat-visible Activity */
+
+@media (
+  max-width: 880px
+) {
+  .detail-page {
+    width:
+      calc(100% - 20px);
+
+    padding-top: 10px;
+  }
+
+  .detail-layout {
+    grid-template-columns:
+      minmax(0,.9fr)
+      minmax(300px,1.1fr);
+
+    gap: 10px;
+  }
+
+  .detail-image-panel,
+  .detail-info {
+    height:
+      min(
+        47dvh,
+        390px
+      );
+  }
+
+  .detail-info {
+    padding: 13px;
+  }
+
+  .detail-info h2 {
+    font-size:
+      clamp(
+        17px,
+        2.5vw,
+        23px
+      );
+  }
+
+  .detail-section p {
+    font-size: 10px;
+  }
+}
+
+
+/*
+ * Truly narrow/mobile Activity:
+ * stack, but keep the image intentionally shallow.
+ */
+
+@media (
+  max-width: 650px
+) {
+  .detail-layout {
+    grid-template-columns:
+      1fr;
+  }
+
+  .detail-image-panel {
+    height: auto;
+
+    aspect-ratio:
+      16 / 8.5;
+  }
+
+  .detail-info {
+    height: auto;
+
+    max-height: none;
+
+    overflow: visible;
+  }
+
+  .detail-section {
+    overflow: visible;
+  }
+}
+
+
+/* =========================================================
    DISCORD ACTIVITY — FOCUSED LAYOUT
 
    Discord's focused mode is the canonical Creator Deals
