@@ -1067,43 +1067,6 @@ function ProfileDrawer({
         </ProfileSection>
 
 
-        <ProfileSection
-          title="Sizing"
-        >
-
-          <div className="two-column">
-
-            <Input
-              label="Shirt Size"
-              value={
-                form.shirt_size
-              }
-              onChange={value =>
-                change(
-                  "shirt_size",
-                  value
-                )
-              }
-            />
-
-            <Input
-              label="Shoe Size"
-              value={
-                form.shoe_size
-              }
-              onChange={value =>
-                change(
-                  "shoe_size",
-                  value
-                )
-              }
-            />
-
-          </div>
-
-        </ProfileSection>
-
-
         <button
           className="primary-button sticky-save"
           onClick={() =>
