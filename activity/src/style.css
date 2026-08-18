@@ -3113,7 +3113,7 @@ html[data-discord-layout="focused"] .product-image-wrap {
  * preserved inside the card.
  */
 .product-image.product-image--contain {
-  object-fit: cover !important;
+  object-fit: fill !important;
   object-position: center center !important;
 }
 
