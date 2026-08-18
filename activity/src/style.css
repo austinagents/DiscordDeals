@@ -3069,3 +3069,10 @@ html[data-discord-layout="focused"]
   }
 }
 
+
+/* Keep deal-card image crop anchored to the top */
+.product-image {
+  object-fit: cover !important;
+  object-position: center top !important;
+}
+
