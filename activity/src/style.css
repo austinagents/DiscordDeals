@@ -2730,3 +2730,42 @@ html[data-discord-layout="focused"]
   text-decoration: none;
 }
 
+
+/* =========================================================
+   DETAIL GEOMETRY FIX — NEVER CLIP PRODUCT CONTENT
+   ========================================================= */
+
+.detail-info {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.detail-section {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+.requirement-card,
+.detail-buttons {
+  flex-shrink: 0;
+}
+
+.detail-image-panel {
+  height: min(50dvh, 430px) !important;
+  min-height: 0 !important;
+  align-self: start;
+}
+
+@media (max-width: 880px) {
+  .detail-image-panel {
+    height: min(47dvh, 390px) !important;
+  }
+
+  .detail-info {
+    height: auto !important;
+  }
+}
+
