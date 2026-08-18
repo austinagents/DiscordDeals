@@ -563,7 +563,21 @@ function ProductCard({
     >
       <div className="product-image-wrap">
         <img
-          className="product-image"
+          className={
+            [
+              "product-image",
+              [
+                "sampler-soft-pretzel-bites-4-pack",
+                "natural-banana-energy-gel"
+              ].includes(
+                String(product.id)
+              )
+                ? "product-image--contain"
+                : ""
+            ]
+              .filter(Boolean)
+              .join(" ")
+          }
           src={
             `/api/products/${encodeURIComponent(
               product.id

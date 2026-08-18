@@ -3093,17 +3093,27 @@ html[data-discord-layout="focused"] .product-image-wrap {
 
 
 /* =========================================================
-   MARKETPLACE IMAGES — NEVER CROP SOURCE IMAGE
+   MARKETPLACE IMAGES — SURGICAL NO-CROP EXCEPTIONS
    ========================================================= */
 
 .product-image-wrap {
   background: var(--surface-2) !important;
 }
 
+/* Normal marketplace behavior */
 .product-image {
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain !important;
+  object-fit: cover !important;
+  object-position: center center !important;
+}
+
+/*
+ * Only Hot Box + VitalFuel need their complete source image
+ * preserved inside the card.
+ */
+.product-image.product-image--contain {
+  object-fit: cover !important;
   object-position: center center !important;
 }
 
