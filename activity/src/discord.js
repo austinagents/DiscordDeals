@@ -5,19 +5,11 @@ import {
 let discordSdk = null;
 let auth = null;
 
-function hasDiscordActivityContext() {
-  try {
-    const params =
-      new URLSearchParams(
-        window.location.search
-      );
-
-    return Boolean(
-      params.get("frame_id")
-    );
-  } catch {
-    return false;
-  }
+function isLocalDevelopment() {
+  return (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  );
 }
 
 function getDiscordSdk() {
@@ -25,89 +17,130 @@ function getDiscordSdk() {
     return discordSdk;
   }
 
-  if (!hasDiscordActivityContext()) {
+  if (isLocalDevelopment()) {
     return null;
   }
 
-  try {
-    discordSdk =
-      new DiscordSDK(
-        import.meta.env
-          .VITE_DISCORD_CLIENT_ID
-      );
-
-    return discordSdk;
-  } catch (error) {
-    console.warn(
-      "Discord SDK could not initialize:",
-      error
+  discordSdk =
+    new DiscordSDK(
+      import.meta.env.VITE_DISCORD_CLIENT_ID
     );
 
-    return null;
-  }
+  return discordSdk;
 }
 
 export async function initializeDiscord() {
+  /*
+   * Keep localhost easy to develop.
+   * Production never uses this identity.
+   */
+  if (isLocalDevelopment()) {
+    console.log(
+      "✓ Creator Deals localhost development mode"
+    );
+
+    auth = {
+      development: true
+    };
+
+    return {
+      auth,
+      accessToken: null
+    };
+  }
+
   const sdk =
     getDiscordSdk();
 
-  /*
-   * Normal localhost development:
-   * render Creator Deals immediately.
-   */
-  if (!sdk) {
-    console.log(
-      "✓ Creator Deals local development mode"
+  await sdk.ready();
+
+  console.log(
+    "✓ Discord Activity SDK ready"
+  );
+
+  const {
+    code
+  } =
+    await sdk.commands.authorize({
+      client_id:
+        import.meta.env
+          .VITE_DISCORD_CLIENT_ID,
+
+      response_type:
+        "code",
+
+      state:
+        "",
+
+      prompt:
+        "none",
+
+      scope: [
+        "identify"
+      ]
+    });
+
+  if (!code) {
+    throw new Error(
+      "Discord authorization did not return a code"
     );
-
-    auth = {
-      development: true
-    };
-
-    return {
-      auth,
-      accessToken: null
-    };
   }
 
-  /*
-   * Real Discord Activity iframe.
-   */
-  try {
-    await sdk.ready();
+  const tokenResponse =
+    await fetch(
+      "/api/token",
+      {
+        method:
+          "POST",
 
-    console.log(
-      "✓ Discord Activity SDK ready"
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body:
+          JSON.stringify({
+            code
+          })
+      }
     );
 
-    auth = {
-      development: true,
-      discordActivity: true
-    };
+  const tokenData =
+    await tokenResponse.json();
 
-    return {
-      auth,
-      accessToken: null
-    };
-
-  } catch (error) {
-    /*
-     * Never allow SDK failure to kill React.
-     */
-    console.warn(
-      "Discord SDK ready() failed; continuing in development mode:",
-      error
+  if (
+    !tokenResponse.ok ||
+    !tokenData?.access_token
+  ) {
+    throw new Error(
+      tokenData?.error ||
+      "Discord token exchange failed"
     );
-
-    auth = {
-      development: true
-    };
-
-    return {
-      auth,
-      accessToken: null
-    };
   }
+
+  const accessToken =
+    tokenData.access_token;
+
+  auth =
+    await sdk.commands.authenticate({
+      access_token:
+        accessToken
+    });
+
+  if (!auth) {
+    throw new Error(
+      "Discord authentication failed"
+    );
+  }
+
+  console.log(
+    `✓ Authenticated Discord user ${auth.user?.username || auth.user?.id || ""}`
+  );
+
+  return {
+    auth,
+    accessToken
+  };
 }
 
 export function getAuth() {
@@ -119,31 +152,21 @@ export async function openExternal(url) {
     return;
   }
 
+  if (isLocalDevelopment()) {
+    window.open(
+      url,
+      "_blank",
+      "noopener,noreferrer"
+    );
+
+    return;
+  }
+
   const sdk =
     getDiscordSdk();
 
-  if (sdk) {
-    try {
-      await sdk.ready();
-
-      await sdk.commands
-        .openExternalLink({
-          url
-        });
-
-      return;
-
-    } catch (error) {
-      console.warn(
-        "Discord external link failed:",
-        error
-      );
-    }
-  }
-
-  window.open(
-    url,
-    "_blank",
-    "noopener,noreferrer"
-  );
+  await sdk.commands
+    .openExternalLink({
+      url
+    });
 }

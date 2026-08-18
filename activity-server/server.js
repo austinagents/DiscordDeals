@@ -296,6 +296,7 @@ async function requireUser(
      * creator while we build/test the Activity UI.
      */
     if (
+      process.env.NODE_ENV !== "production" &&
       req.headers[
         "x-creator-deals-dev"
       ] === "1"

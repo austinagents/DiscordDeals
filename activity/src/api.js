@@ -4,6 +4,13 @@ export function setAccessToken(token) {
   accessToken = token;
 }
 
+function isLocalDevelopment() {
+  return (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  );
+}
+
 async function request(
   path,
   options = {}
@@ -21,13 +28,15 @@ async function request(
   }
 
   /*
-   * Tells our LOCAL Activity API to use
-   * ADMIN_DISCORD_USER_ID as the current dev user.
+   * Localhost convenience only.
+   * Never sent from partnerlinks.app.
    */
-  headers.set(
-    "X-Creator-Deals-Dev",
-    "1"
-  );
+  if (isLocalDevelopment()) {
+    headers.set(
+      "X-Creator-Deals-Dev",
+      "1"
+    );
+  }
 
   const response =
     await fetch(path, {
