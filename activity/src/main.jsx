@@ -1068,59 +1068,6 @@ function ProfileDrawer({
 
 
         <ProfileSection
-          title="Shipping"
-        >
-
-          <Input
-            label="Address"
-            value={form.address}
-            onChange={value =>
-              change(
-                "address",
-                value
-              )
-            }
-          />
-
-          <div className="two-column">
-            <Input
-              label="City"
-              value={form.city}
-              onChange={value =>
-                change(
-                  "city",
-                  value
-                )
-              }
-            />
-
-            <Input
-              label="State"
-              value={form.state}
-              onChange={value =>
-                change(
-                  "state",
-                  value
-                )
-              }
-            />
-          </div>
-
-          <Input
-            label="ZIP Code"
-            value={form.zip_code}
-            onChange={value =>
-              change(
-                "zip_code",
-                value
-              )
-            }
-          />
-
-        </ProfileSection>
-
-
-        <ProfileSection
           title="Sizing"
         >
 
