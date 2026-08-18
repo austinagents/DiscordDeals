@@ -2769,3 +2769,303 @@ html[data-discord-layout="focused"]
   }
 }
 
+
+/* =========================================================
+   CREATOR DEALS — FINAL COMPACT DETAIL COMPOSITION
+   ========================================================= */
+
+/*
+ * Reserve room for Discord's bottom Activity controls.
+ * Keep the complete deal surface above them.
+ */
+
+.detail-page {
+  width: min(1180px, calc(100% - 36px)) !important;
+  padding: 14px 0 130px !important;
+}
+
+.back-button {
+  margin-bottom: 10px !important;
+  font-size: 12px !important;
+}
+
+
+/* Balanced 2-column Discord Activity layout */
+
+.detail-layout {
+  display: grid !important;
+
+  grid-template-columns:
+    minmax(300px, .86fr)
+    minmax(420px, 1.14fr) !important;
+
+  gap: 22px !important;
+
+  align-items: start !important;
+}
+
+
+/* Product art */
+
+.detail-image-panel {
+  width: 100% !important;
+
+  height: 360px !important;
+
+  min-height: 0 !important;
+
+  aspect-ratio: auto !important;
+
+  border-radius: 14px !important;
+
+  align-self: start !important;
+}
+
+.detail-image-panel img {
+  width: 100% !important;
+  height: 100% !important;
+
+  object-fit: cover !important;
+}
+
+
+/* Product information card */
+
+.detail-info {
+  height: 360px !important;
+  min-height: 360px !important;
+  max-height: 360px !important;
+
+  padding: 18px !important;
+
+  border-radius: 14px !important;
+
+  display: flex !important;
+  flex-direction: column !important;
+
+  overflow: hidden !important;
+}
+
+
+/* Category */
+
+.category-label {
+  flex: 0 0 auto !important;
+
+  align-self: flex-start !important;
+
+  width: auto !important;
+
+  padding: 4px 8px !important;
+
+  font-size: 8px !important;
+}
+
+
+/* Product title */
+
+.detail-info h2 {
+  flex: 0 0 auto !important;
+
+  margin: 9px 0 2px !important;
+
+  font-size: clamp(21px, 2.4vw, 29px) !important;
+
+  line-height: 1.02 !important;
+}
+
+.detail-brand {
+  flex: 0 0 auto !important;
+
+  margin-bottom: 11px !important;
+
+  font-size: 12px !important;
+}
+
+
+/* Metrics */
+
+.detail-metrics {
+  flex: 0 0 auto !important;
+
+  display: grid !important;
+
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr)) !important;
+
+  gap: 7px !important;
+
+  margin-bottom: 10px !important;
+}
+
+.metric-card {
+  min-width: 0 !important;
+
+  padding: 8px 9px !important;
+
+  border-radius: 8px !important;
+}
+
+.metric-card span {
+  margin-bottom: 2px !important;
+
+  font-size: 7px !important;
+}
+
+.metric-card strong {
+  font-size: 12px !important;
+}
+
+
+/*
+ * Only the description gets flexible/scrollable space.
+ */
+
+.detail-section {
+  flex: 1 1 auto !important;
+
+  min-height: 0 !important;
+
+  padding: 9px 2px 9px 0 !important;
+
+  overflow-y: auto !important;
+
+  scrollbar-width: thin !important;
+}
+
+.detail-section h4 {
+  margin-bottom: 4px !important;
+
+  font-size: 8px !important;
+}
+
+.detail-section p {
+  margin: 0 !important;
+
+  font-size: 11px !important;
+
+  line-height: 1.36 !important;
+}
+
+
+/* Requirement always stays visible */
+
+.requirement-card {
+  flex: 0 0 auto !important;
+
+  padding: 8px 10px !important;
+
+  gap: 2px !important;
+
+  border-radius: 8px !important;
+
+  font-size: 10px !important;
+}
+
+.requirement-card span {
+  margin-bottom: 2px !important;
+
+  font-size: 7px !important;
+}
+
+
+/* Request button always stays visible */
+
+.detail-buttons {
+  flex: 0 0 auto !important;
+
+  display: grid !important;
+
+  grid-template-columns: 1fr auto !important;
+
+  gap: 7px !important;
+
+  margin-top: 9px !important;
+}
+
+.detail-buttons .primary-button,
+.detail-buttons .secondary-button {
+  min-height: 34px !important;
+
+  padding: 0 13px !important;
+
+  border-radius: 8px !important;
+
+  font-size: 11px !important;
+}
+
+
+/* Slightly smaller chat-visible Discord Activity */
+
+@media (max-width: 980px) {
+  .detail-page {
+    width: calc(100% - 28px) !important;
+  }
+
+  .detail-layout {
+    grid-template-columns:
+      minmax(260px, .82fr)
+      minmax(360px, 1.18fr) !important;
+
+    gap: 14px !important;
+  }
+
+  .detail-image-panel,
+  .detail-info {
+    height: 330px !important;
+
+    min-height: 330px !important;
+
+    max-height: 330px !important;
+  }
+
+  .detail-info {
+    padding: 15px !important;
+  }
+
+  .detail-info h2 {
+    font-size: clamp(19px, 2.5vw, 25px) !important;
+  }
+
+  .detail-section p {
+    font-size: 10px !important;
+  }
+}
+
+
+/* Mobile only */
+
+@media (max-width: 650px) {
+  .detail-page {
+    padding-bottom: 100px !important;
+  }
+
+  .detail-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  .detail-image-panel {
+    height: auto !important;
+
+    min-height: 0 !important;
+
+    max-height: none !important;
+
+    aspect-ratio: 16 / 9 !important;
+  }
+
+  .detail-info {
+    height: auto !important;
+
+    min-height: 0 !important;
+
+    max-height: none !important;
+
+    overflow: visible !important;
+  }
+
+  .detail-section {
+    overflow: visible !important;
+  }
+}
+
