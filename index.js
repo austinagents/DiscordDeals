@@ -107,6 +107,53 @@ if (
 }
 
 
+if (
+  !requestColumns.has("source")
+) {
+  db.exec(
+    "ALTER TABLE product_requests ADD COLUMN source TEXT NOT NULL DEFAULT 'activity'"
+  );
+
+  console.log(
+    "✓ Added product_requests.source"
+  );
+}
+
+const productColumns =
+  new Set(
+    db.prepare(
+      "PRAGMA table_info(products)"
+    )
+      .all()
+      .map((row) => row.name)
+  );
+
+if (
+  !productColumns.has(
+    "announcement_sent_at"
+  )
+) {
+  db.exec(
+    "ALTER TABLE products ADD COLUMN announcement_sent_at TEXT"
+  );
+
+  /*
+   * Existing production deals must NOT be announced when this
+   * feature is first deployed. Only products created after this
+   * migration should enter the new-deal announcement flow.
+   */
+  db.exec(`
+    UPDATE products
+    SET announcement_sent_at =
+      CURRENT_TIMESTAMP
+    WHERE announcement_sent_at IS NULL
+  `);
+
+  console.log(
+    "✓ Added products.announcement_sent_at and marked existing deals handled"
+  );
+}
+
 /* =========================================================
    INITIAL PRODUCTS
 
@@ -295,6 +342,98 @@ function saveTikTok(userId, handle) {
       tiktok_handle = excluded.tiktok_handle,
       updated_at = CURRENT_TIMESTAMP
   `).run(userId, handle);
+}
+
+function hasRequestedProduct(
+  userId,
+  productId
+) {
+  return Boolean(
+    db.prepare(`
+      SELECT id
+      FROM product_requests
+      WHERE discord_user_id = ?
+      AND CAST(product_id AS TEXT) = ?
+      LIMIT 1
+    `).get(
+      String(userId),
+      String(productId)
+    )
+  );
+}
+
+function insertProductRequest(
+  userId,
+  productId,
+  handle,
+  source
+) {
+  return db.prepare(`
+    INSERT INTO product_requests (
+      discord_user_id,
+      product_id,
+      tiktok_handle,
+      status,
+      source
+    )
+    VALUES (?, ?, ?, 'pending', ?)
+  `).run(
+    String(userId),
+    String(productId),
+    handle,
+    source
+  );
+}
+
+function requestSourceLabel(source) {
+  return source === "quick_request"
+    ? "Quick Request"
+    : "Activity";
+}
+
+function componentHasCustomId(
+  component,
+  customId
+) {
+  if (!component) {
+    return false;
+  }
+
+  if (
+    component.customId === customId ||
+    component.custom_id === customId
+  ) {
+    return true;
+  }
+
+  const children =
+    component.components ||
+    component.data?.components ||
+    [];
+
+  return Array.isArray(children) &&
+    children.some(
+      (child) =>
+        componentHasCustomId(
+          child,
+          customId
+        )
+    );
+}
+
+function messageHasCustomId(
+  message,
+  customId
+) {
+  return (
+    message.components || []
+  ).some(
+    (component) =>
+      componentHasCustomId(
+        component,
+        customId
+      )
+  );
 }
 
 /* =========================================================
@@ -486,6 +625,84 @@ function buildHome() {
   return v2(
     [container],
     {
+      attachments: []
+    }
+  );
+}
+
+/* =========================================================
+   NEW DEAL ANNOUNCEMENT
+========================================================= */
+
+function buildDealAnnouncement(
+  product
+) {
+  const media =
+    productMedia(
+      product,
+      "announcement"
+    );
+
+  const shopAds =
+    safeDealValue(
+      product.shop_ads,
+      "—"
+    );
+
+  const container =
+    new ContainerBuilder()
+      .setAccentColor(0x5865f2)
+
+      .addSectionComponents(
+        new SectionBuilder()
+
+          .addTextDisplayComponents(
+            new TextDisplayBuilder()
+              .setContent(
+                [
+                  "## 🆕 New Creator Deal",
+                  `### ${product.name}`,
+                  `**${product.brand}** • ${product.category}`,
+                  "",
+                  `💰 **Commission:** ${product.commission}`,
+                  `🚀 **Shop Ads:** ${shopAds}`,
+                  "📦 **Free Sample:** Auto-Approved",
+                  "⭐ **Requirement:** 1 TikTok Shoppable Video",
+                  "",
+                  "-# Request directly below or open Creator Deals."
+                ].join("\n")
+              )
+          )
+
+          .setThumbnailAccessory(
+            new ThumbnailBuilder()
+              .setURL(media.url)
+              .setDescription(
+                product.name
+              )
+          )
+      )
+
+      .addActionRowComponents(
+        new ActionRowBuilder()
+          .addComponents(
+            new ButtonBuilder()
+              .setCustomId(
+                `quick-request:${product.id}`
+              )
+              .setLabel(
+                "Quick Request"
+              )
+              .setStyle(
+                ButtonStyle.Success
+              )
+          )
+      );
+
+  return v2(
+    [container],
+    {
+      files: media.files,
       attachments: []
     }
   );
@@ -829,6 +1046,49 @@ function tikTokModal(productId) {
         .setTextInputComponent(
           new TextInputBuilder()
             .setCustomId("tiktok")
+            .setStyle(
+              TextInputStyle.Short
+            )
+            .setPlaceholder(
+              "@yourusername"
+            )
+            .setRequired(true)
+            .setMaxLength(40)
+        )
+    );
+}
+
+/* =========================================================
+   QUICK REQUEST TIKTOK MODAL
+========================================================= */
+
+function quickRequestModal(
+  productId
+) {
+  return new ModalBuilder()
+
+    .setCustomId(
+      `quick-request-submit:${productId}`
+    )
+
+    .setTitle(
+      "Quick Request"
+    )
+
+    .addLabelComponents(
+      new LabelBuilder()
+        .setLabel(
+          "TikTok username"
+        )
+        .setDescription(
+          "Enter the TikTok username for this request"
+        )
+
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId(
+              "tiktok"
+            )
             .setStyle(
               TextInputStyle.Short
             )
@@ -1459,6 +1719,7 @@ function requestsForProduct(
         id,
         discord_user_id,
         tiktok_handle,
+        source,
         status,
         created_at,
         sent_at
@@ -1628,6 +1889,7 @@ function buildRequestDetail(
               [
                 `### ${row.tiktok_handle}`,
                 `Discord: <@${row.discord_user_id}>`,
+                `Source: **${requestSourceLabel(row.source)}**`,
                 Number.isFinite(unix)
                   ? `Requested: <t:${unix}:f>`
                   : `Requested: ${row.created_at}`
@@ -1867,8 +2129,9 @@ async function ensurePublicMessage() {
       (message) =>
         message.author.id ===
           client.user.id &&
-        message.flags.has(
-          MessageFlags.IsComponentsV2
+        messageHasCustomId(
+          message,
+          "deals:launch"
         )
     );
 
@@ -1893,6 +2156,118 @@ async function ensurePublicMessage() {
   }
 
   return publicMessage;
+}
+
+/* =========================================================
+   NEW DEAL ANNOUNCEMENTS
+========================================================= */
+
+function unannouncedActiveProducts() {
+  return db.prepare(`
+    SELECT *
+    FROM products
+    WHERE active = 1
+    AND announcement_sent_at IS NULL
+    ORDER BY
+      datetime(created_at) ASC,
+      rowid ASC
+    LIMIT 10
+  `).all();
+}
+
+
+async function repostPublicLauncher(
+  channel
+) {
+  const previous =
+    publicMessage;
+
+  /*
+   * Send the replacement first so the Activity launcher is
+   * guaranteed to become the newest/bottom message before the
+   * older launcher is removed.
+   */
+  const next =
+    await channel.send(
+      buildHome("all")
+    );
+
+  publicMessage =
+    next;
+
+  if (
+    previous &&
+    previous.id !== next.id
+  ) {
+    await previous
+      .delete()
+      .catch((error) => {
+        if (
+          error.code !== 10008
+        ) {
+          console.error(
+            "Old Activity launcher delete failed:",
+            error
+          );
+        }
+      });
+  }
+
+  return next;
+}
+
+
+async function announceNewDeals() {
+  const products =
+    unannouncedActiveProducts();
+
+  if (!products.length) {
+    return;
+  }
+
+  const channel =
+    await client.channels.fetch(
+      process.env.DEALS_CHANNEL_ID
+    );
+
+  if (
+    !channel ||
+    !channel.isTextBased()
+  ) {
+    throw new Error(
+      "DEALS_CHANNEL_ID is invalid"
+    );
+  }
+
+  for (const product of products) {
+    await channel.send(
+      buildDealAnnouncement(
+        product
+      )
+    );
+
+    /*
+     * Critical ordering:
+     * announcement first, fresh Activity launcher second.
+     */
+    await repostPublicLauncher(
+      channel
+    );
+
+    db.prepare(`
+      UPDATE products
+      SET announcement_sent_at =
+        CURRENT_TIMESTAMP
+      WHERE id = ?
+      AND announcement_sent_at IS NULL
+    `).run(
+      String(product.id)
+    );
+
+    console.log(
+      `✓ Announced new deal: ${product.name}`
+    );
+  }
 }
 
 /* =========================================================
@@ -2309,6 +2684,54 @@ client.on(
       if (interaction.isButton()) {
         const id =
           interaction.customId;
+
+        /* =================================================
+           QUICK REQUEST
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "quick-request:"
+          )
+        ) {
+          const productId =
+            String(
+              id.slice(
+                "quick-request:".length
+              )
+            );
+
+          const product =
+            productById(
+              productId
+            );
+
+          if (
+            !product ||
+            !product.active
+          ) {
+            await interaction.reply({
+              content:
+                "That deal is no longer available.",
+              flags:
+                MessageFlags.Ephemeral
+            });
+
+            return;
+          }
+
+          /*
+           * Always ask for TikTok on Quick Request, even if the
+           * creator already has one saved in their profile.
+           */
+          await interaction.showModal(
+            quickRequestModal(
+              productId
+            )
+          );
+
+          return;
+        }
 
         
 
@@ -2784,6 +3207,106 @@ client.on(
       ) {
         const id =
           interaction.customId;
+
+        /* =================================================
+           QUICK REQUEST SUBMIT
+        ================================================= */
+
+        if (
+          id.startsWith(
+            "quick-request-submit:"
+          )
+        ) {
+          const productId =
+            String(
+              id.slice(
+                "quick-request-submit:".length
+              )
+            );
+
+          const product =
+            productById(
+              productId
+            );
+
+          if (
+            !product ||
+            !product.active
+          ) {
+            await interaction.reply({
+              content:
+                "That deal is no longer available.",
+              flags:
+                MessageFlags.Ephemeral
+            });
+
+            return;
+          }
+
+          let handle =
+            interaction.fields
+              .getTextInputValue(
+                "tiktok"
+              )
+              .trim();
+
+          if (
+            !handle.startsWith("@")
+          ) {
+            handle =
+              `@${handle}`;
+          }
+
+          /*
+           * Same permanent identity/profile used by the Activity.
+           */
+          saveTikTok(
+            interaction.user.id,
+            handle
+          );
+
+          /*
+           * Same duplicate universe as Activity:
+           * exact discord_user_id + product_id pair.
+           */
+          if (
+            hasRequestedProduct(
+              interaction.user.id,
+              productId
+            )
+          ) {
+            await interaction.reply({
+              content:
+                "You already requested this product.",
+              flags:
+                MessageFlags.Ephemeral
+            });
+
+            return;
+          }
+
+          insertProductRequest(
+            interaction.user.id,
+            productId,
+            handle,
+            "quick_request"
+          );
+
+          await refreshRequestDashboardIfChanged(
+            true
+          );
+
+          await interaction.reply({
+            content:
+              `✓ Quick Request submitted for **${product.name}**.`,
+            flags:
+              MessageFlags.Ephemeral
+          });
+
+          return;
+        }
+
+
 
         /* =================================================
            ADMIN ADD PRODUCT — STEP 1
@@ -3304,6 +3827,8 @@ client.once(
     lastRequestDashboardSignature =
       requestDashboardSignature();
 
+    await announceNewDeals();
+
     /*
      * Activity requests are written by the API process.
      * Check SQLite every 5 seconds and update Discord only
@@ -3315,6 +3840,23 @@ client.once(
           .catch((error) => {
             console.error(
               "Request dashboard refresh failed:",
+              error
+            );
+          });
+      },
+      5000
+    );
+    /*
+     * Product creation can happen through more than one admin
+     * surface. Watch the shared DB and announce only newly active
+     * products that have never been announced.
+     */
+    setInterval(
+      () => {
+        announceNewDeals()
+          .catch((error) => {
+            console.error(
+              "New deal announcement failed:",
               error
             );
           });

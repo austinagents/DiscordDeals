@@ -216,6 +216,12 @@ addColumn(
 );
 
 
+addColumn(
+  "product_requests",
+  "source",
+  "source TEXT NOT NULL DEFAULT 'activity'"
+);
+
 /* =========================================================
    HELPERS
 ========================================================= */
@@ -1002,9 +1008,10 @@ app.post(
           discord_user_id,
           product_id,
           tiktok_handle,
-          status
+          status,
+          source
         )
-        VALUES (?, ?, ?, 'pending')
+        VALUES (?, ?, ?, 'pending', 'activity')
       `).run(
         userId,
         String(product.id),
