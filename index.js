@@ -599,27 +599,41 @@ function creatorProductLine(product) {
 function buildHome() {
   const container =
     new ContainerBuilder()
-      .setAccentColor(0x5865f2)
+      /*
+       * UGC Network brand gold.
+       * Discord controls the actual card background.
+       */
+      .setAccentColor(0xD6AF71)
 
-      .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(
-          [
-            "## Creator Deals",
-            "Discover products, request samples, and manage your creator profile.",
-            "",
-            "-# Browse active brand partnerships in the Creator Deals app."
-          ].join("\n")
-        )
-      )
+      .addSectionComponents(
+        new SectionBuilder()
 
-      .addActionRowComponents(
-        new ActionRowBuilder().addComponents(
+          .addTextDisplayComponents(
+            new TextDisplayBuilder()
+              .setContent(
+                [
+                  "## Creator Deals",
+                  "-# Browse all active brand partnerships, request samples, and manage your creator profile."
+                ].join("\n")
+              )
+          )
 
-          new ButtonBuilder()
-            .setCustomId("deals:launch")
-            .setLabel("Open Creator Deals")
-            .setStyle(ButtonStyle.Primary)
-        )
+          /*
+           * Strongest native Discord navigation CTA.
+           * Discord does not support arbitrary gold button fills.
+           */
+          .setButtonAccessory(
+            new ButtonBuilder()
+              .setCustomId(
+                "deals:launch"
+              )
+              .setLabel(
+                "Open Creator Deals"
+              )
+              .setStyle(
+                ButtonStyle.Primary
+              )
+          )
       );
 
   return v2(
@@ -629,6 +643,7 @@ function buildHome() {
     }
   );
 }
+
 
 /* =========================================================
    NEW DEAL ANNOUNCEMENT
@@ -643,16 +658,39 @@ function buildDealAnnouncement(
       "announcement"
     );
 
+  const commission =
+    safeDealValue(
+      product.commission,
+      "—"
+    );
+
   const shopAds =
     safeDealValue(
       product.shop_ads,
       "—"
     );
 
+  const description =
+    shorten(
+      product.description,
+      320
+    );
+
+  const shopAdsText =
+    shopAds !== "—"
+      ? `🚀 **${shopAds} Shop Ads**`
+      : "🚀 **No Shop Ads**";
+
   const container =
     new ContainerBuilder()
-      .setAccentColor(0x5865f2)
+      /*
+       * UGC Network brand gold.
+       */
+      .setAccentColor(0xD6AF71)
 
+      /*
+       * Main product identity + thumbnail.
+       */
       .addSectionComponents(
         new SectionBuilder()
 
@@ -660,29 +698,60 @@ function buildDealAnnouncement(
             new TextDisplayBuilder()
               .setContent(
                 [
-                  "## 🆕 New Creator Deal",
-                  `### ${product.name}`,
-                  `**${product.brand}** • ${product.category}`,
+                  "### ✦ NEW DEAL",
+                  `## ${product.name}`,
+                  `**${product.brand}**  •  ${product.category}`,
                   "",
-                  `💰 **Commission:** ${product.commission}`,
-                  `🚀 **Shop Ads:** ${shopAds}`,
-                  "📦 **Free Sample:** Auto-Approved",
-                  "⭐ **Requirement:** 1 TikTok Shoppable Video",
-                  "",
-                  "-# Request directly below or open Creator Deals."
+                  description
                 ].join("\n")
               )
           )
 
           .setThumbnailAccessory(
             new ThumbnailBuilder()
-              .setURL(media.url)
+              .setURL(
+                media.url
+              )
               .setDescription(
                 product.name
               )
           )
       )
 
+      /*
+       * Deal economics / requirements.
+       * Native Discord does not support a custom 4-column grid,
+       * so this is the closest clean Components V2 equivalent.
+       */
+      .addSeparatorComponents(
+        new SeparatorBuilder()
+          .setSpacing(
+            SeparatorSpacingSize.Small
+          )
+          .setDivider(true)
+      )
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(
+            [
+              `💰 **${commission} Commission**  •  ${shopAdsText}`,
+              "📦 **Free Sample:** Auto-Approved  •  ⭐ **1 TikTok Shoppable Video**"
+            ].join("\n")
+          )
+      )
+
+      .addSeparatorComponents(
+        new SeparatorBuilder()
+          .setSpacing(
+            SeparatorSpacingSize.Small
+          )
+          .setDivider(true)
+      )
+
+      /*
+       * Keep green exclusively for the direct conversion CTA.
+       */
       .addActionRowComponents(
         new ActionRowBuilder()
           .addComponents(
@@ -693,9 +762,17 @@ function buildDealAnnouncement(
               .setLabel(
                 "Quick Request"
               )
+              .setEmoji("✅")
               .setStyle(
                 ButtonStyle.Success
               )
+          )
+      )
+
+      .addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(
+            "-# Request directly here, or open Creator Deals below to browse every active partnership."
           )
       );
 
@@ -707,6 +784,7 @@ function buildDealAnnouncement(
     }
   );
 }
+
 
 /* =========================================================
    PRODUCT DETAILS
