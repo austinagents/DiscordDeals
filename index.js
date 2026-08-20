@@ -599,30 +599,29 @@ function creatorProductLine(product) {
 function buildHome() {
   const container =
     new ContainerBuilder()
-      /*
-       * UGC Network brand gold.
-       * Discord controls the actual card background.
-       */
       .setAccentColor(0xD6AF71)
 
-      .addSectionComponents(
-        new SectionBuilder()
-
-          .addTextDisplayComponents(
-            new TextDisplayBuilder()
-              .setContent(
-                [
-                  "## Creator Deals",
-                  "-# Browse all active brand partnerships, request samples, and manage your creator profile."
-                ].join("\n")
-              )
+      .addTextDisplayComponents(
+        new TextDisplayBuilder()
+          .setContent(
+            [
+              "## Creator Deals",
+              "-# Browse active brand partnerships, request samples, and manage your profile."
+            ].join("\n")
           )
+      )
 
-          /*
-           * Strongest native Discord navigation CTA.
-           * Discord does not support arbitrary gold button fills.
-           */
-          .setButtonAccessory(
+      .addSeparatorComponents(
+        new SeparatorBuilder()
+          .setSpacing(
+            SeparatorSpacingSize.Small
+          )
+          .setDivider(true)
+      )
+
+      .addActionRowComponents(
+        new ActionRowBuilder()
+          .addComponents(
             new ButtonBuilder()
               .setCustomId(
                 "deals:launch"
