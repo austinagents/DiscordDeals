@@ -1740,6 +1740,9 @@ let lastRequestDashboardSignature =
 let requestDashboardProductId =
   null;
 
+let requestDashboardView =
+  "pending";
+
 
 function requestDashboardRows() {
   return db
@@ -1829,13 +1832,25 @@ function buildRequestDetail(
     return buildRequestDashboard();
   }
 
-  const requests =
+  const allRequests =
     requestsForProduct(
       productId
     );
 
+  const requests =
+    requestDashboardView ===
+      "sent"
+        ? allRequests.filter(
+            (row) =>
+              row.status === "sent"
+          )
+        : allRequests.filter(
+            (row) =>
+              row.status !== "sent"
+          );
+
   const newCount =
-    requests.filter(
+    allRequests.filter(
       (row) =>
         row.status !== "sent"
     ).length;
@@ -1856,9 +1871,13 @@ function buildRequestDetail(
               `**${product.brand}**`,
               "",
               `**${requests.length} ${requests.length === 1 ? "request" : "requests"}**`,
-              newCount > 0
-                ? `🟡 **${newCount} new**`
-                : "🟢 **Sent**"
+              requestDashboardView === "sent"
+                ? "🟢 **Sent**"
+                : (
+                    newCount > 0
+                      ? `🟡 **${newCount} new**`
+                      : "🟢 **Sent**"
+                  )
             ].join("\n")
           )
       )
@@ -1894,16 +1913,19 @@ function buildRequestDetail(
                 `requests:sent:${product.id}`
               )
               .setLabel(
-                newCount > 0
-                  ? "Mark Sent ✓"
-                  : "Sent ✓"
+                requestDashboardView === "sent" ||
+                newCount === 0
+                  ? "Sent ✓"
+                  : "Mark Sent ✓"
               )
               .setStyle(
-                newCount > 0
-                  ? ButtonStyle.Success
-                  : ButtonStyle.Secondary
+                requestDashboardView === "sent" ||
+                newCount === 0
+                  ? ButtonStyle.Secondary
+                  : ButtonStyle.Success
               )
               .setDisabled(
+                requestDashboardView === "sent" ||
                 newCount === 0
               )
           )
@@ -1914,7 +1936,9 @@ function buildRequestDetail(
       .addTextDisplayComponents(
         new TextDisplayBuilder()
           .setContent(
-            "No requests for this product."
+            requestDashboardView === "sent"
+              ? "No sent requests for this product."
+              : "No new requests for this product."
           )
       );
 
@@ -1984,7 +2008,7 @@ function buildRequestDetail(
       .addTextDisplayComponents(
         new TextDisplayBuilder()
           .setContent(
-            `-# Showing latest ${visible.length} of ${requests.length}. CSV includes all TikTok handles.`
+            `-# Showing latest ${visible.length} of ${requests.length}.`
           )
       );
   }
@@ -2137,6 +2161,17 @@ function buildRequestDashboard() {
                 )
                 .setStyle(
                   ButtonStyle.Primary
+                ),
+
+              new ButtonBuilder()
+                .setCustomId(
+                  `requests:view-sent:${row.product_id}`
+                )
+                .setLabel(
+                  "View Sent Requests"
+                )
+                .setStyle(
+                  ButtonStyle.Secondary
                 )
             )
         );
@@ -2531,6 +2566,42 @@ client.on(
               "requests:view:".length
             );
 
+        requestDashboardView =
+          "pending";
+
+        await refreshAdmin();
+
+        return;
+      }
+
+
+      /* ===================================================
+         REQUEST DASHBOARD — VIEW SENT REQUESTS
+      =================================================== */
+
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(
+          "requests:view-sent:"
+        )
+      ) {
+        if (
+          !adminOnly(interaction)
+        ) {
+          return;
+        }
+
+        await interaction.deferUpdate();
+
+        requestDashboardProductId =
+          interaction.customId
+            .slice(
+              "requests:view-sent:".length
+            );
+
+        requestDashboardView =
+          "sent";
+
         await refreshAdmin();
 
         return;
@@ -2556,6 +2627,9 @@ client.on(
 
         requestDashboardProductId =
           null;
+
+        requestDashboardView =
+          "pending";
 
         await refreshAdmin();
 
