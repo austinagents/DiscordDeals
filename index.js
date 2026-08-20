@@ -1784,7 +1784,7 @@ function requestDashboardRows() {
       ORDER BY
         datetime(last_request_at) DESC
 
-      LIMIT 6
+      LIMIT 5
     `)
     .all();
 }
