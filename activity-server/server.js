@@ -48,7 +48,7 @@ const upload =
 
     limits: {
       fileSize:
-        12 * 1024 * 1024
+        80 * 1024 * 1024
     }
   });
 
@@ -222,6 +222,19 @@ addColumn(
   "source TEXT NOT NULL DEFAULT 'activity'"
 );
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_videos (
+    product_id TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    video_blob BLOB NOT NULL,
+    video_filename TEXT,
+    video_mime TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (product_id, slot)
+  )
+`);
+
+
 /* =========================================================
    HELPERS
 ========================================================= */
@@ -240,8 +253,34 @@ function normalizeProduct(
     ...safeRow
   } = row;
 
+  const creatorVideos =
+    db.prepare(
+      `SELECT
+         slot,
+         video_filename,
+         video_mime
+       FROM product_videos
+       WHERE product_id = ?
+       ORDER BY slot ASC`
+    )
+      .all(String(row.id))
+      .map(video => ({
+        slot:
+          Number(video.slot),
+
+        filename:
+          video.video_filename || "",
+
+        mime:
+          video.video_mime ||
+          "video/mp4"
+      }));
+
   return {
     ...safeRow,
+
+    creator_videos:
+      creatorVideos,
 
     active:
       Boolean(row.active),
@@ -272,6 +311,86 @@ function productById(id) {
        WHERE id = ?`
     ).get(String(id))
   );
+}
+
+
+function saveProductVideos(
+  productId,
+  files,
+  body
+) {
+  for (
+    let slot = 1;
+    slot <= 4;
+    slot++
+  ) {
+    const remove =
+      String(
+        body?.[
+          `remove_video_${slot}`
+        ] || ""
+      ) === "true";
+
+    if (remove) {
+      db.prepare(
+        `DELETE FROM product_videos
+         WHERE product_id = ?
+         AND slot = ?`
+      ).run(
+        String(productId),
+        slot
+      );
+    }
+
+    const file =
+      files?.[
+        `video_${slot}`
+      ]?.[0];
+
+    if (!file) {
+      continue;
+    }
+
+    db.prepare(`
+      INSERT INTO product_videos (
+        product_id,
+        slot,
+        video_blob,
+        video_filename,
+        video_mime,
+        updated_at
+      )
+
+      VALUES (
+        ?, ?, ?, ?, ?,
+        CURRENT_TIMESTAMP
+      )
+
+      ON CONFLICT(
+        product_id,
+        slot
+      )
+      DO UPDATE SET
+        video_blob =
+          excluded.video_blob,
+
+        video_filename =
+          excluded.video_filename,
+
+        video_mime =
+          excluded.video_mime,
+
+        updated_at =
+          CURRENT_TIMESTAMP
+    `).run(
+      String(productId),
+      slot,
+      file.buffer,
+      file.originalname,
+      file.mimetype ||
+        "video/mp4"
+    );
+  }
 }
 
 
@@ -764,6 +883,156 @@ app.get(
 );
 
 
+app.get(
+  "/api/products/:id/videos/:slot",
+  (req, res) => {
+    const slot =
+      Number(req.params.slot);
+
+    if (
+      !Number.isInteger(slot) ||
+      slot < 1 ||
+      slot > 4
+    ) {
+      return res
+        .sendStatus(404);
+    }
+
+    const row =
+      db.prepare(
+        `SELECT
+           video_blob,
+           video_filename,
+           video_mime
+         FROM product_videos
+         WHERE product_id = ?
+         AND slot = ?`
+      )
+        .get(
+          String(
+            req.params.id
+          ),
+          slot
+        );
+
+    if (
+      !row?.video_blob
+    ) {
+      return res
+        .sendStatus(404);
+    }
+
+    const video =
+      row.video_blob;
+
+    const size =
+      video.length;
+
+    const mime =
+      row.video_mime ||
+      "video/mp4";
+
+    const range =
+      req.headers.range;
+
+    res.setHeader(
+      "Accept-Ranges",
+      "bytes"
+    );
+
+    res.setHeader(
+      "Cache-Control",
+      "public,max-age=300"
+    );
+
+    if (!range) {
+      res.setHeader(
+        "Content-Type",
+        mime
+      );
+
+      res.setHeader(
+        "Content-Length",
+        size
+      );
+
+      return res.send(
+        video
+      );
+    }
+
+    const match =
+      /^bytes=(\d*)-(\d*)$/
+        .exec(range);
+
+    if (!match) {
+      res.setHeader(
+        "Content-Range",
+        `bytes */${size}`
+      );
+
+      return res
+        .sendStatus(416);
+    }
+
+    let start =
+      match[1]
+        ? Number(match[1])
+        : 0;
+
+    let end =
+      match[2]
+        ? Number(match[2])
+        : size - 1;
+
+    if (
+      start >= size ||
+      start < 0 ||
+      end < start
+    ) {
+      res.setHeader(
+        "Content-Range",
+        `bytes */${size}`
+      );
+
+      return res
+        .sendStatus(416);
+    }
+
+    end =
+      Math.min(
+        end,
+        size - 1
+      );
+
+    const chunk =
+      video.subarray(
+        start,
+        end + 1
+      );
+
+    res.status(206);
+
+    res.setHeader(
+      "Content-Type",
+      mime
+    );
+
+    res.setHeader(
+      "Content-Length",
+      chunk.length
+    );
+
+    res.setHeader(
+      "Content-Range",
+      `bytes ${start}-${end}/${size}`
+    );
+
+    res.send(chunk);
+  }
+);
+
+
 /* =========================================================
    CREATOR PROFILE
 ========================================================= */
@@ -1057,7 +1326,28 @@ app.post(
   "/api/admin/products",
   requireUser,
   requireAdmin,
-  upload.single("image"),
+  upload.fields([
+    {
+      name: "image",
+      maxCount: 1
+    },
+    {
+      name: "video_1",
+      maxCount: 1
+    },
+    {
+      name: "video_2",
+      maxCount: 1
+    },
+    {
+      name: "video_3",
+      maxCount: 1
+    },
+    {
+      name: "video_4",
+      maxCount: 1
+    }
+  ]),
   (req, res) => {
     const id =
       safeId(
@@ -1070,6 +1360,10 @@ app.post(
       ) === "true"
         ? 1
         : 0;
+
+    const imageFile =
+      req.files?.image?.[0] ||
+      null;
 
     db.prepare(`
       INSERT INTO products (
@@ -1121,16 +1415,22 @@ app.post(
       req.body.brand_website ||
       "",
 
-      req.file?.buffer ||
+      imageFile?.buffer ||
       null,
 
-      req.file?.originalname ||
+      imageFile?.originalname ||
       null,
 
-      req.file?.mimetype ||
+      imageFile?.mimetype ||
       null,
 
       active
+    );
+
+    saveProductVideos(
+      id,
+      req.files,
+      req.body
     );
 
     res.json(
@@ -1144,7 +1444,28 @@ app.put(
   "/api/admin/products/:id",
   requireUser,
   requireAdmin,
-  upload.single("image"),
+  upload.fields([
+    {
+      name: "image",
+      maxCount: 1
+    },
+    {
+      name: "video_1",
+      maxCount: 1
+    },
+    {
+      name: "video_2",
+      maxCount: 1
+    },
+    {
+      name: "video_3",
+      maxCount: 1
+    },
+    {
+      name: "video_4",
+      maxCount: 1
+    }
+  ]),
   (req, res) => {
     const id =
       String(
@@ -1170,7 +1491,11 @@ app.put(
         ? 1
         : 0;
 
-    if (req.file) {
+    const imageFile =
+      req.files?.image?.[0] ||
+      null;
+
+    if (imageFile) {
       db.prepare(`
         UPDATE products
         SET
@@ -1197,9 +1522,9 @@ app.put(
         req.body.commission || "0%",
         req.body.shop_ads || "—",
         req.body.brand_website || "",
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype,
+        imageFile.buffer,
+        imageFile.originalname,
+        imageFile.mimetype,
         active,
         id
       );
@@ -1231,6 +1556,12 @@ app.put(
       );
     }
 
+    saveProductVideos(
+      id,
+      req.files,
+      req.body
+    );
+
     res.json(
       productById(id)
     );
@@ -1243,14 +1574,20 @@ app.delete(
   requireUser,
   requireAdmin,
   (req, res) => {
+    const id =
+      String(
+        req.params.id
+      );
+
+    db.prepare(
+      `DELETE FROM product_videos
+       WHERE product_id = ?`
+    ).run(id);
+
     db.prepare(
       `DELETE FROM products
        WHERE id = ?`
-    ).run(
-      String(
-        req.params.id
-      )
-    );
+    ).run(id);
 
     res.json({
       ok: true

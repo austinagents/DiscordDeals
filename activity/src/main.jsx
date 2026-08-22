@@ -563,21 +563,7 @@ function ProductCard({
     >
       <div className="product-image-wrap">
         <img
-          className={
-            [
-              "product-image",
-              [
-                "sampler-soft-pretzel-bites-4-pack",
-                "natural-banana-energy-gel"
-              ].includes(
-                String(product.id)
-              )
-                ? "product-image--contain"
-                : ""
-            ]
-              .filter(Boolean)
-              .join(" ")
-          }
+          className="product-image"
           src={
             `/api/products/${encodeURIComponent(
               product.id
@@ -653,6 +639,13 @@ function ProductDetail({
   const hasAds =
     product.shop_ads &&
     product.shop_ads !== "—";
+
+  const creatorVideos =
+    Array.isArray(
+      product.creator_videos
+    )
+      ? product.creator_videos
+      : [];
 
   return (
     <main className="detail-page">
@@ -784,6 +777,44 @@ function ProductDetail({
 
         </section>
       </div>
+
+
+      {creatorVideos.length > 0 && (
+        <section className="creator-videos-section">
+
+          <h3>
+            Creator Videos
+          </h3>
+
+          <div className="creator-videos-grid">
+
+            {creatorVideos.map(video => (
+              <div
+                className="creator-video-card"
+                key={video.slot}
+                style={{
+                  gridColumn:
+                    `${video.slot} / span 1`
+                }}
+              >
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  src={
+                    `/api/products/${encodeURIComponent(
+                      product.id
+                    )}/videos/${video.slot}`
+                  }
+                />
+              </div>
+            ))}
+
+          </div>
+
+        </section>
+      )}
+
     </main>
   );
 }
@@ -1383,6 +1414,85 @@ function AdminEditor({
   const [image, setImage] =
     useState(null);
 
+  const [videos, setVideos] =
+    useState([
+      null,
+      null,
+      null,
+      null
+    ]);
+
+  const [
+    removeVideos,
+    setRemoveVideos
+  ] =
+    useState([
+      false,
+      false,
+      false,
+      false
+    ]);
+
+
+  function setVideo(
+    slot,
+    file
+  ) {
+    setVideos(current => {
+      const next =
+        [...current];
+
+      next[slot - 1] =
+        file;
+
+      return next;
+    });
+
+    if (file) {
+      setRemoveVideos(
+        current => {
+          const next =
+            [...current];
+
+          next[slot - 1] =
+            false;
+
+          return next;
+        }
+      );
+    }
+  }
+
+
+  function setRemoveVideo(
+    slot,
+    value
+  ) {
+    setRemoveVideos(
+      current => {
+        const next =
+          [...current];
+
+        next[slot - 1] =
+          value;
+
+        return next;
+      }
+    );
+
+    if (value) {
+      setVideos(current => {
+        const next =
+          [...current];
+
+        next[slot - 1] =
+          null;
+
+        return next;
+      });
+    }
+  }
+
 
   function change(key, value) {
     setForm(current => ({
@@ -1412,6 +1522,26 @@ function AdminEditor({
         image
       );
     }
+
+    videos.forEach(
+      (file, index) => {
+        if (file) {
+          data.append(
+            `video_${index + 1}`,
+            file
+          );
+        }
+
+        if (
+          removeVideos[index]
+        ) {
+          data.append(
+            `remove_video_${index + 1}`,
+            "true"
+          );
+        }
+      }
+    );
 
     if (existing) {
       await api.updateProduct(
@@ -1596,6 +1726,82 @@ function AdminEditor({
             }
           />
         </label>
+
+
+        <div className="creator-video-admin full-width">
+
+          <div className="creator-video-admin-heading">
+            Creator Videos
+          </div>
+
+          <div className="creator-video-admin-grid">
+
+            {[1, 2, 3, 4].map(slot => {
+              const currentVideo =
+                product?.creator_videos
+                  ?.find(
+                    video =>
+                      Number(
+                        video.slot
+                      ) === slot
+                  );
+
+              return (
+                <label
+                  className="creator-video-upload"
+                  key={slot}
+                >
+                  <span>
+                    Video {slot}
+                  </span>
+
+                  {currentVideo && (
+                    <div className="creator-video-current">
+                      Current video ✓
+                    </div>
+                  )}
+
+                  <input
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime,video/*"
+                    onChange={e =>
+                      setVideo(
+                        slot,
+                        e.target.files?.[0] ||
+                        null
+                      )
+                    }
+                  />
+
+                  {currentVideo && (
+                    <label className="creator-video-remove">
+                      <input
+                        type="checkbox"
+                        checked={
+                          removeVideos[
+                            slot - 1
+                          ]
+                        }
+                        onChange={e =>
+                          setRemoveVideo(
+                            slot,
+                            e.target.checked
+                          )
+                        }
+                      />
+
+                      <span>
+                        Remove current video
+                      </span>
+                    </label>
+                  )}
+                </label>
+              );
+            })}
+
+          </div>
+
+        </div>
 
 
         <label className="toggle-row full-width">
