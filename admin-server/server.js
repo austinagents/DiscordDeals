@@ -89,12 +89,24 @@ db.prepare(`
   ])
 );
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_videos (
+    product_id TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    video_blob BLOB NOT NULL,
+    video_filename TEXT,
+    video_mime TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (product_id, slot)
+  )
+`);
+
 const app = express();
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 12 * 1024 * 1024
+    fileSize: 80 * 1024 * 1024
   }
 });
 
@@ -231,8 +243,34 @@ function normalizeProduct(row) {
     ...safe
   } = row;
 
+  const creatorVideos =
+    db.prepare(
+      `SELECT
+         slot,
+         video_filename,
+         video_mime
+       FROM product_videos
+       WHERE product_id = ?
+       ORDER BY slot ASC`
+    )
+      .all(String(row.id))
+      .map(video => ({
+        slot:
+          Number(video.slot),
+
+        filename:
+          video.video_filename || "",
+
+        mime:
+          video.video_mime ||
+          "video/mp4"
+      }));
+
   return {
     ...safe,
+
+    creator_videos:
+      creatorVideos,
     active: Boolean(row.active),
     shop_ads:
       row.shop_ads &&
@@ -257,6 +295,81 @@ function productById(id) {
       "SELECT * FROM products WHERE id = ?"
     ).get(String(id))
   );
+}
+
+
+function saveProductVideos(
+  productId,
+  files,
+  body
+) {
+  for (
+    let slot = 1;
+    slot <= 4;
+    slot++
+  ) {
+    const remove =
+      String(
+        body?.[
+          `remove_video_${slot}`
+        ] || ""
+      ) === "true";
+
+    if (remove) {
+      db.prepare(
+        `DELETE FROM product_videos
+         WHERE product_id = ?
+         AND slot = ?`
+      ).run(
+        String(productId),
+        slot
+      );
+    }
+
+    const file =
+      files?.[
+        `video_${slot}`
+      ]?.[0];
+
+    if (!file) {
+      continue;
+    }
+
+    db.prepare(`
+      INSERT INTO product_videos (
+        product_id,
+        slot,
+        video_blob,
+        video_filename,
+        video_mime,
+        updated_at
+      )
+      VALUES (
+        ?, ?, ?, ?, ?,
+        CURRENT_TIMESTAMP
+      )
+      ON CONFLICT(
+        product_id,
+        slot
+      )
+      DO UPDATE SET
+        video_blob =
+          excluded.video_blob,
+        video_filename =
+          excluded.video_filename,
+        video_mime =
+          excluded.video_mime,
+        updated_at =
+          CURRENT_TIMESTAMP
+    `).run(
+      String(productId),
+      slot,
+      file.buffer,
+      file.originalname,
+      file.mimetype ||
+        "video/mp4"
+    );
+  }
 }
 
 
@@ -696,7 +809,28 @@ app.get(
 app.post(
   "/admin-api/products",
   requireAdmin,
-  upload.single("image"),
+  upload.fields([
+    {
+      name: "image",
+      maxCount: 1
+    },
+    {
+      name: "video_1",
+      maxCount: 1
+    },
+    {
+      name: "video_2",
+      maxCount: 1
+    },
+    {
+      name: "video_3",
+      maxCount: 1
+    },
+    {
+      name: "video_4",
+      maxCount: 1
+    }
+  ]),
   (req, res) => {
     const id =
       safeId(req.body.name);
@@ -706,6 +840,10 @@ app.post(
       "true"
         ? 1
         : 0;
+
+    const imageFile =
+      req.files?.image?.[0] ||
+      null;
 
     db.prepare(`
       INSERT INTO products (
@@ -746,11 +884,17 @@ app.post(
 
       req.body.brand_website || "",
 
-      req.file?.buffer || null,
-      req.file?.originalname || null,
-      req.file?.mimetype || null,
+      imageFile?.buffer || null,
+      imageFile?.originalname || null,
+      imageFile?.mimetype || null,
 
       active
+    );
+
+    saveProductVideos(
+      id,
+      req.files,
+      req.body
     );
 
     res.json(
@@ -763,7 +907,28 @@ app.post(
 app.put(
   "/admin-api/products/:id",
   requireAdmin,
-  upload.single("image"),
+  upload.fields([
+    {
+      name: "image",
+      maxCount: 1
+    },
+    {
+      name: "video_1",
+      maxCount: 1
+    },
+    {
+      name: "video_2",
+      maxCount: 1
+    },
+    {
+      name: "video_3",
+      maxCount: 1
+    },
+    {
+      name: "video_4",
+      maxCount: 1
+    }
+  ]),
   (req, res) => {
     const id =
       String(req.params.id);
@@ -785,7 +950,11 @@ app.put(
         ? 1
         : 0;
 
-    if (req.file) {
+    const imageFile =
+      req.files?.image?.[0] ||
+      null;
+
+    if (imageFile) {
       db.prepare(`
         UPDATE products
         SET
@@ -822,9 +991,9 @@ app.put(
 
         req.body.brand_website || "",
 
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype,
+        imageFile.buffer,
+        imageFile.originalname,
+        imageFile.mimetype,
 
         active,
         id
@@ -868,6 +1037,12 @@ app.put(
       );
     }
 
+    saveProductVideos(
+      id,
+      req.files,
+      req.body
+    );
+
     res.json(
       productById(id)
     );
@@ -879,11 +1054,17 @@ app.delete(
   "/admin-api/products/:id",
   requireAdmin,
   (req, res) => {
+    const id =
+      String(req.params.id);
+
+    db.prepare(
+      `DELETE FROM product_videos
+       WHERE product_id = ?`
+    ).run(id);
+
     db.prepare(
       "DELETE FROM products WHERE id = ?"
-    ).run(
-      String(req.params.id)
-    );
+    ).run(id);
 
     res.json({
       ok: true

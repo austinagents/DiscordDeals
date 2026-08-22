@@ -290,6 +290,102 @@
       resize: vertical;
     }
 
+    .creator-video-manager {
+      grid-column: 1 / -1;
+
+      padding: 16px;
+
+      border: 1px solid var(--border);
+
+      border-radius: 13px;
+
+      background: #111319;
+    }
+
+    .creator-video-manager-title {
+      margin-bottom: 5px;
+
+      font-weight: 800;
+    }
+
+    .creator-video-manager-help {
+      margin-bottom: 14px;
+
+      color: var(--muted);
+
+      font-size: 12px;
+
+      line-height: 1.45;
+    }
+
+    .creator-video-manager-grid {
+      display: grid;
+
+      grid-template-columns:
+        repeat(4,minmax(0,1fr));
+
+      gap: 12px;
+    }
+
+    .creator-video-slot {
+      min-width: 0;
+
+      padding: 12px;
+
+      border: 1px solid var(--border);
+
+      border-radius: 11px;
+
+      background: var(--panel);
+    }
+
+    .creator-video-slot-title {
+      margin-bottom: 8px;
+
+      font-size: 12px;
+
+      font-weight: 800;
+    }
+
+    .creator-video-status {
+      min-height: 18px;
+
+      margin-bottom: 8px;
+
+      color: var(--muted);
+
+      font-size: 11px;
+    }
+
+    .creator-video-status.active {
+      color: var(--green);
+    }
+
+    .creator-video-slot input[type="file"] {
+      padding: 8px;
+
+      font-size: 11px;
+    }
+
+    .creator-video-remove {
+      display: flex;
+
+      align-items: center;
+
+      gap: 7px;
+
+      margin-top: 9px;
+
+      color: var(--muted);
+
+      font-size: 11px;
+    }
+
+    .creator-video-remove input {
+      width: auto;
+    }
+
+
     .toggle {
       display: flex;
       gap: 10px;
@@ -335,6 +431,11 @@
 
       .field.full {
         grid-column: auto;
+      }
+
+      .creator-video-manager-grid {
+        grid-template-columns:
+          repeat(2,minmax(0,1fr));
       }
     }
 
@@ -680,6 +781,136 @@
             accept="image/*"
           />
         </label>
+
+        <section class="creator-video-manager">
+
+          <div class="creator-video-manager-title">
+            Creator Videos
+          </div>
+
+          <div class="creator-video-manager-help">
+            Up to four vertical TikTok videos.
+            Slot order maps directly left-to-right
+            in the Creator Deals product page.
+          </div>
+
+          <div class="creator-video-manager-grid">
+
+            <div class="creator-video-slot">
+              <div class="creator-video-slot-title">
+                Video 1
+              </div>
+
+              <div
+                id="videoStatus1"
+                class="creator-video-status"
+              >
+                No video
+              </div>
+
+              <input
+                id="video1"
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime,video/*"
+              />
+
+              <label class="creator-video-remove">
+                <input
+                  id="removeVideo1"
+                  type="checkbox"
+                />
+                <span>Remove current video</span>
+              </label>
+            </div>
+
+
+            <div class="creator-video-slot">
+              <div class="creator-video-slot-title">
+                Video 2
+              </div>
+
+              <div
+                id="videoStatus2"
+                class="creator-video-status"
+              >
+                No video
+              </div>
+
+              <input
+                id="video2"
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime,video/*"
+              />
+
+              <label class="creator-video-remove">
+                <input
+                  id="removeVideo2"
+                  type="checkbox"
+                />
+                <span>Remove current video</span>
+              </label>
+            </div>
+
+
+            <div class="creator-video-slot">
+              <div class="creator-video-slot-title">
+                Video 3
+              </div>
+
+              <div
+                id="videoStatus3"
+                class="creator-video-status"
+              >
+                No video
+              </div>
+
+              <input
+                id="video3"
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime,video/*"
+              />
+
+              <label class="creator-video-remove">
+                <input
+                  id="removeVideo3"
+                  type="checkbox"
+                />
+                <span>Remove current video</span>
+              </label>
+            </div>
+
+
+            <div class="creator-video-slot">
+              <div class="creator-video-slot-title">
+                Video 4
+              </div>
+
+              <div
+                id="videoStatus4"
+                class="creator-video-status"
+              >
+                No video
+              </div>
+
+              <input
+                id="video4"
+                type="file"
+                accept="video/mp4,video/webm,video/quicktime,video/*"
+              />
+
+              <label class="creator-video-remove">
+                <input
+                  id="removeVideo4"
+                  type="checkbox"
+                />
+                <span>Remove current video</span>
+              </label>
+            </div>
+
+          </div>
+
+        </section>
+
 
         <label class="toggle full">
           <input
@@ -1393,6 +1624,45 @@
 
     $("image").value = "";
 
+    for (
+      let slot = 1;
+      slot <= 4;
+      slot++
+    ) {
+      $(`video${slot}`).value =
+        "";
+
+      $(`removeVideo${slot}`)
+        .checked =
+          false;
+
+      const current =
+        product?.creator_videos
+          ?.find(
+            video =>
+              Number(
+                video.slot
+              ) === slot
+          );
+
+      const status =
+        $(`videoStatus${slot}`);
+
+      status.textContent =
+        current
+          ? "Current video ✓"
+          : "No video";
+
+      status.classList.toggle(
+        "active",
+        Boolean(current)
+      );
+
+      $(`removeVideo${slot}`)
+        .disabled =
+          !current;
+    }
+
     $("delete")
       .classList
       .toggle(
@@ -1490,6 +1760,33 @@
         "image",
         $("image").files[0]
       );
+    }
+
+    for (
+      let slot = 1;
+      slot <= 4;
+      slot++
+    ) {
+      const file =
+        $(`video${slot}`)
+          .files[0];
+
+      if (file) {
+        data.append(
+          `video_${slot}`,
+          file
+        );
+      }
+
+      if (
+        $(`removeVideo${slot}`)
+          .checked
+      ) {
+        data.append(
+          `remove_video_${slot}`,
+          "true"
+        );
+      }
     }
 
     $("save").disabled = true;
