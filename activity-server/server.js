@@ -349,6 +349,146 @@ function productById(id) {
 }
 
 
+
+async function sendAdminRequestPing(
+  productId
+) {
+  try {
+    const channelId =
+      process.env
+        .DEALS_ADMIN_CHANNEL_ID;
+
+    const adminUserId =
+      process.env
+        .ADMIN_DISCORD_USER_ID;
+
+    const token =
+      process.env.DISCORD_TOKEN;
+
+    if (
+      !channelId ||
+      !adminUserId ||
+      !token
+    ) {
+      console.error(
+        "Request notification skipped: missing Discord notification env"
+      );
+
+      return;
+    }
+
+    const product =
+      productById(
+        productId
+      );
+
+    const productName =
+      product?.name ||
+      "Creator Deal";
+
+    const response =
+      await fetch(
+        `https://discord.com/api/v10/channels/${channelId}/messages`,
+        {
+          method: "POST",
+
+          headers: {
+            Authorization:
+              `Bot ${token}`,
+
+            "Content-Type":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+              content:
+                `<@${adminUserId}> 🔔 New creator deal request — **${productName}**`,
+
+              allowed_mentions: {
+                parse: [],
+
+                users: [
+                  String(
+                    adminUserId
+                  )
+                ]
+              }
+            })
+        }
+      );
+
+    if (!response.ok) {
+      console.error(
+        "Request notification send failed:",
+        response.status,
+        await response.text()
+      );
+
+      return;
+    }
+
+    const message =
+      await response.json();
+
+    /*
+     * Leave the ping visible only briefly.
+     * Discord can deliver the mention notification,
+     * but the admin channel does not accumulate messages.
+     */
+    const timer =
+      setTimeout(
+        async () => {
+          try {
+            const deleteResponse =
+              await fetch(
+                `https://discord.com/api/v10/channels/${channelId}/messages/${message.id}`,
+                {
+                  method:
+                    "DELETE",
+
+                  headers: {
+                    Authorization:
+                      `Bot ${token}`
+                  }
+                }
+              );
+
+            if (
+              !deleteResponse.ok &&
+              deleteResponse.status !== 404
+            ) {
+              console.error(
+                "Request notification cleanup failed:",
+                deleteResponse.status
+              );
+            }
+
+          } catch (error) {
+            console.error(
+              "Request notification cleanup error:",
+              error
+            );
+          }
+        },
+        5000
+      );
+
+    timer.unref?.();
+
+  } catch (error) {
+    /*
+     * A notification failure must NEVER
+     * interfere with the creator's request.
+     */
+    console.error(
+      "Request notification error:",
+      error
+    );
+  }
+}
+
+
 function saveProductVideos(
   productId,
   files,
@@ -1370,6 +1510,10 @@ app.post(
         String(product.id),
         profile.tiktok_handle
       );
+
+    void sendAdminRequestPing(
+      product.id
+    );
 
     res.json({
       ok: true,
