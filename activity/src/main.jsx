@@ -1632,7 +1632,7 @@ function AdminEditor({
               )
             }
           >
-            {CATEGORIES
+            {DEFAULT_CATEGORIES
               .filter(
                 item =>
                   item !== "All"
