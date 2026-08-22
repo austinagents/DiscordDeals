@@ -3,6 +3,15 @@ import dotenv from "dotenv";
 import Database from "better-sqlite3";
 import multer from "multer";
 import path from "path";
+
+import {
+  S3Client,
+  GetObjectCommand
+} from "@aws-sdk/client-s3";
+
+import {
+  getSignedUrl
+} from "@aws-sdk/s3-request-presigner";
 import {
   fileURLToPath
 } from "url";
@@ -40,6 +49,25 @@ const app =
   express();
 
 const PORT = 3001;
+
+const R2_BUCKET =
+  process.env.R2_BUCKET;
+
+const r2 =
+  new S3Client({
+    region: "auto",
+
+    endpoint:
+      `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+
+    credentials: {
+      accessKeyId:
+        process.env.R2_ACCESS_KEY_ID,
+
+      secretAccessKey:
+        process.env.R2_SECRET_ACCESS_KEY
+    }
+  });
 
 const upload =
   multer({
@@ -233,6 +261,13 @@ db.exec(`
     PRIMARY KEY (product_id, slot)
   )
 `);
+
+addColumn(
+  "product_videos",
+  "video_key",
+  "video_key TEXT"
+);
+
 
 
 /* =========================================================
@@ -885,7 +920,7 @@ app.get(
 
 app.get(
   "/api/products/:id/videos/:slot",
-  (req, res) => {
+  async (req, res) => {
     const slot =
       Number(req.params.slot);
 
@@ -903,7 +938,8 @@ app.get(
         `SELECT
            video_blob,
            video_filename,
-           video_mime
+           video_mime,
+           video_key
          FROM product_videos
          WHERE product_id = ?
          AND slot = ?`
@@ -916,7 +952,55 @@ app.get(
         );
 
     if (
-      !row?.video_blob
+      row?.video_key
+    ) {
+      try {
+        const playbackUrl =
+          await getSignedUrl(
+            r2,
+
+            new GetObjectCommand({
+              Bucket:
+                R2_BUCKET,
+
+              Key:
+                row.video_key
+            }),
+
+            {
+              expiresIn:
+                60 * 60
+            }
+          );
+
+        res.setHeader(
+          "Cache-Control",
+          "private,no-store"
+        );
+
+        return res.redirect(
+          302,
+          playbackUrl
+        );
+
+      } catch (error) {
+        console.error(
+          "R2 playback URL error:",
+          error
+        );
+
+        return res
+          .sendStatus(502);
+      }
+    }
+
+    /*
+     * Legacy SQLite BLOB fallback.
+     * Existing videos continue working until migrated to R2.
+     */
+    if (
+      !row?.video_blob ||
+      row.video_blob.length === 0
     ) {
       return res
         .sendStatus(404);

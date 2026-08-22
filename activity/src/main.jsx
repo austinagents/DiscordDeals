@@ -800,7 +800,7 @@ function ProductDetail({
                 <video
                   controls
                   playsInline
-                  preload="metadata"
+                  preload="none"
                   src={
                     `/api/products/${encodeURIComponent(
                       product.id

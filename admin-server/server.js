@@ -6,12 +6,41 @@ import crypto from "crypto";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand
+} from "@aws-sdk/client-s3";
+
+import {
+  getSignedUrl
+} from "@aws-sdk/s3-request-presigner";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({
   path: path.resolve(__dirname, "../.env")
 });
+
+const R2_BUCKET =
+  process.env.R2_BUCKET;
+
+const r2 =
+  new S3Client({
+    region: "auto",
+
+    endpoint:
+      `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+
+    credentials: {
+      accessKeyId:
+        process.env.R2_ACCESS_KEY_ID,
+
+      secretAccessKey:
+        process.env.R2_SECRET_ACCESS_KEY
+    }
+  });
 
 const PORT = 3002;
 const ORIGIN = "https://partnerlinks.app";
@@ -100,6 +129,12 @@ db.exec(`
     PRIMARY KEY (product_id, slot)
   )
 `);
+
+addColumn(
+  "product_videos",
+  "video_key",
+  "video_key TEXT"
+);
 
 const app = express();
 
@@ -778,6 +813,361 @@ app.put(
     res.json({
       ok: true
     });
+  }
+);
+
+
+
+/* ===============================
+   R2 CREATOR VIDEO API
+================================ */
+
+function validVideoSlot(value) {
+  const slot =
+    Number(value);
+
+  return (
+    Number.isInteger(slot) &&
+    slot >= 1 &&
+    slot <= 4
+  );
+}
+
+
+app.post(
+  "/admin-api/products/:id/videos/:slot/presign",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const productId =
+        String(req.params.id);
+
+      const slot =
+        Number(req.params.slot);
+
+      if (!validVideoSlot(slot)) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Invalid video slot"
+          });
+      }
+
+      const product =
+        productById(productId);
+
+      if (!product) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "Product not found"
+          });
+      }
+
+      const filename =
+        String(
+          req.body.filename ||
+          "video.mp4"
+        );
+
+      const mime =
+        String(
+          req.body.mime ||
+          "video/mp4"
+        );
+
+      if (
+        !mime.startsWith(
+          "video/"
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "File must be a video"
+          });
+      }
+
+      const rawExtension =
+        path.extname(filename)
+          .toLowerCase();
+
+      const extension =
+        /^[.][a-z0-9]{1,8}$/
+          .test(rawExtension)
+          ? rawExtension
+          : ".mp4";
+
+      const key =
+        [
+          "creator-videos",
+          productId,
+          `slot-${slot}-${crypto.randomUUID()}${extension}`
+        ].join("/");
+
+      const uploadUrl =
+        await getSignedUrl(
+          r2,
+
+          new PutObjectCommand({
+            Bucket:
+              R2_BUCKET,
+
+            Key:
+              key,
+
+            ContentType:
+              mime
+          }),
+
+          {
+            expiresIn: 15 * 60
+          }
+        );
+
+      res.json({
+        key,
+        upload_url:
+          uploadUrl
+      });
+
+    } catch (error) {
+      console.error(
+        "R2 presign error:",
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            "Could not prepare video upload"
+        });
+    }
+  }
+);
+
+
+app.post(
+  "/admin-api/products/:id/videos/:slot/complete",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const productId =
+        String(req.params.id);
+
+      const slot =
+        Number(req.params.slot);
+
+      if (!validVideoSlot(slot)) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Invalid video slot"
+          });
+      }
+
+      const key =
+        String(
+          req.body.key || ""
+        );
+
+      const requiredPrefix =
+        `creator-videos/${productId}/`;
+
+      if (
+        !key.startsWith(
+          requiredPrefix
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Invalid video key"
+          });
+      }
+
+      const old =
+        db.prepare(
+          `SELECT video_key
+           FROM product_videos
+           WHERE product_id = ?
+           AND slot = ?`
+        ).get(
+          productId,
+          slot
+        );
+
+      db.prepare(`
+        INSERT INTO product_videos (
+          product_id,
+          slot,
+          video_blob,
+          video_filename,
+          video_mime,
+          video_key,
+          updated_at
+        )
+
+        VALUES (
+          ?, ?,
+          zeroblob(0),
+          ?, ?, ?,
+          CURRENT_TIMESTAMP
+        )
+
+        ON CONFLICT(
+          product_id,
+          slot
+        )
+        DO UPDATE SET
+          video_blob =
+            zeroblob(0),
+
+          video_filename =
+            excluded.video_filename,
+
+          video_mime =
+            excluded.video_mime,
+
+          video_key =
+            excluded.video_key,
+
+          updated_at =
+            CURRENT_TIMESTAMP
+      `).run(
+        productId,
+        slot,
+        String(
+          req.body.filename ||
+          ""
+        ),
+        String(
+          req.body.mime ||
+          "video/mp4"
+        ),
+        key
+      );
+
+      if (
+        old?.video_key &&
+        old.video_key !== key
+      ) {
+        try {
+          await r2.send(
+            new DeleteObjectCommand({
+              Bucket:
+                R2_BUCKET,
+
+              Key:
+                old.video_key
+            })
+          );
+        } catch (error) {
+          console.error(
+            "Could not remove replaced R2 video:",
+            error
+          );
+        }
+      }
+
+      res.json(
+        productById(
+          productId
+        )
+      );
+
+    } catch (error) {
+      console.error(
+        "R2 completion error:",
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            "Could not finish video upload"
+        });
+    }
+  }
+);
+
+
+app.delete(
+  "/admin-api/products/:id/videos/:slot",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const productId =
+        String(req.params.id);
+
+      const slot =
+        Number(req.params.slot);
+
+      if (!validVideoSlot(slot)) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Invalid video slot"
+          });
+      }
+
+      const row =
+        db.prepare(
+          `SELECT video_key
+           FROM product_videos
+           WHERE product_id = ?
+           AND slot = ?`
+        ).get(
+          productId,
+          slot
+        );
+
+      if (row?.video_key) {
+        await r2.send(
+          new DeleteObjectCommand({
+            Bucket:
+              R2_BUCKET,
+
+            Key:
+              row.video_key
+          })
+        );
+      }
+
+      db.prepare(
+        `DELETE FROM product_videos
+         WHERE product_id = ?
+         AND slot = ?`
+      ).run(
+        productId,
+        slot
+      );
+
+      res.json({
+        ok: true
+      });
+
+    } catch (error) {
+      console.error(
+        "R2 delete error:",
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            "Could not remove video"
+        });
+    }
   }
 );
 
