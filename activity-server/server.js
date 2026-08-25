@@ -137,6 +137,19 @@ addColumn(
   "category_sort_order INTEGER NOT NULL DEFAULT 0"
 );
 
+addColumn(
+  "products",
+  "variants_enabled",
+  "variants_enabled INTEGER NOT NULL DEFAULT 0"
+);
+
+addColumn(
+  "products",
+  "variant_selection_limit",
+  "variant_selection_limit INTEGER NOT NULL DEFAULT 1"
+);
+
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
@@ -269,6 +282,50 @@ addColumn(
 );
 
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    name TEXT NOT NULL,
+    external_product_id TEXT,
+    image_blob BLOB,
+    image_filename TEXT,
+    image_mime TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS
+  idx_product_variants_product_id
+  ON product_variants (
+    product_id,
+    position
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_request_variants (
+    request_id INTEGER NOT NULL,
+    variant_id INTEGER,
+    variant_name_snapshot TEXT NOT NULL,
+    external_product_id_snapshot TEXT,
+    position INTEGER NOT NULL DEFAULT 0
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS
+  idx_product_request_variants_request_id
+  ON product_request_variants (
+    request_id,
+    position
+  )
+`);
+
+
 
 /* =========================================================
    HELPERS
@@ -311,11 +368,65 @@ function normalizeProduct(
           "video/mp4"
       }));
 
+
+  const variants =
+    db.prepare(
+      `SELECT
+         id,
+         position,
+         name,
+         external_product_id,
+         image_filename,
+         image_mime
+       FROM product_variants
+       WHERE product_id = ?
+       ORDER BY
+         position ASC,
+         id ASC`
+    )
+      .all(String(row.id))
+      .map(variant => ({
+        id:
+          Number(variant.id),
+
+        position:
+          Number(variant.position),
+
+        name:
+          variant.name || "",
+
+        external_product_id:
+          variant.external_product_id || "",
+
+        image_filename:
+          variant.image_filename || "",
+
+        image_mime:
+          variant.image_mime ||
+          "image/jpeg"
+      }));
+
   return {
     ...safeRow,
 
     creator_videos:
       creatorVideos,
+
+    variants:
+      variants,
+
+    variants_enabled:
+      Boolean(
+        row.variants_enabled
+      ),
+
+    variant_selection_limit:
+      Math.max(
+        1,
+        Number(
+          row.variant_selection_limit
+        ) || 1
+      ),
 
     active:
       Boolean(row.active),
@@ -346,6 +457,349 @@ function productById(id) {
        WHERE id = ?`
     ).get(String(id))
   );
+}
+
+
+function parseAdminVariants(
+  body
+) {
+  let raw = [];
+
+  try {
+    raw =
+      JSON.parse(
+        body.variants_json ||
+        "[]"
+      );
+  } catch {
+    raw = [];
+  }
+
+  if (!Array.isArray(raw)) {
+    raw = [];
+  }
+
+  return raw
+    .slice(0, 12)
+    .map((variant, index) => ({
+      id:
+        variant?.id
+          ? Number(variant.id)
+          : null,
+
+      position:
+        index + 1,
+
+      name:
+        String(
+          variant?.name || ""
+        ).trim(),
+
+      external_product_id:
+        String(
+          variant?.external_product_id ||
+          ""
+        ).trim()
+    }))
+    .filter(
+      variant =>
+        variant.name
+    );
+}
+
+
+function validateSelectedVariants(
+  product,
+  selectedVariantIds
+) {
+  const enabled =
+    Boolean(
+      product?.variants_enabled
+    );
+
+  const available =
+    Array.isArray(
+      product?.variants
+    )
+      ? product.variants
+      : [];
+
+  /*
+   * Normal products must preserve
+   * their existing request behavior.
+   */
+  if (
+    !enabled ||
+    available.length === 0
+  ) {
+    return [];
+  }
+
+  const raw =
+    Array.isArray(
+      selectedVariantIds
+    )
+      ? selectedVariantIds
+      : [];
+
+  const ids =
+    raw.map(value =>
+      Number(value)
+    );
+
+  if (
+    ids.some(
+      id =>
+        !Number.isInteger(id) ||
+        id <= 0
+    )
+  ) {
+    const error =
+      new Error(
+        "Invalid product selection"
+      );
+
+    error.statusCode = 400;
+
+    throw error;
+  }
+
+  const uniqueIds =
+    [...new Set(ids)];
+
+  if (
+    uniqueIds.length !==
+    ids.length
+  ) {
+    const error =
+      new Error(
+        "Duplicate product selection"
+      );
+
+    error.statusCode = 400;
+
+    throw error;
+  }
+
+  const limit =
+    Math.max(
+      1,
+      Math.min(
+        available.length,
+        Number(
+          product
+            .variant_selection_limit
+        ) || 1
+      )
+    );
+
+  if (
+    uniqueIds.length < 1
+  ) {
+    const error =
+      new Error(
+        "Select at least one product"
+      );
+
+    error.statusCode = 400;
+
+    throw error;
+  }
+
+  if (
+    uniqueIds.length > limit
+  ) {
+    const error =
+      new Error(
+        `Select up to ${limit} products`
+      );
+
+    error.statusCode = 400;
+
+    throw error;
+  }
+
+  const selected =
+    uniqueIds.map(id =>
+      available.find(
+        variant =>
+          Number(variant.id) === id
+      )
+    );
+
+  if (
+    selected.some(
+      variant => !variant
+    )
+  ) {
+    const error =
+      new Error(
+        "Invalid product selection"
+      );
+
+    error.statusCode = 400;
+
+    throw error;
+  }
+
+  return selected;
+}
+
+
+function saveProductVariants(
+  productId,
+  files,
+  body
+) {
+  const variants =
+    parseAdminVariants(body);
+
+  const existing =
+    db.prepare(
+      `SELECT *
+       FROM product_variants
+       WHERE product_id = ?
+       ORDER BY
+         position ASC,
+         id ASC`
+    )
+      .all(String(productId));
+
+  const keepIds =
+    new Set();
+
+  const updateStatement =
+    db.prepare(`
+      UPDATE product_variants
+      SET
+        position = ?,
+        name = ?,
+        external_product_id = ?,
+        image_blob = ?,
+        image_filename = ?,
+        image_mime = ?,
+        updated_at =
+          CURRENT_TIMESTAMP
+      WHERE id = ?
+      AND product_id = ?
+    `);
+
+  const updateWithoutImage =
+    db.prepare(`
+      UPDATE product_variants
+      SET
+        position = ?,
+        name = ?,
+        external_product_id = ?,
+        updated_at =
+          CURRENT_TIMESTAMP
+      WHERE id = ?
+      AND product_id = ?
+    `);
+
+  const insertStatement =
+    db.prepare(`
+      INSERT INTO product_variants (
+        product_id,
+        position,
+        name,
+        external_product_id,
+        image_blob,
+        image_filename,
+        image_mime
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+  variants.forEach(
+    (variant, index) => {
+      const imageFile =
+        files?.[
+          `variant_image_${index + 1}`
+        ]?.[0] ||
+        null;
+
+      if (variant.id) {
+        const matching =
+          existing.find(
+            row =>
+              Number(row.id) ===
+              Number(variant.id)
+          );
+
+        if (!matching) {
+          return;
+        }
+
+        keepIds.add(
+          Number(variant.id)
+        );
+
+        if (imageFile) {
+          updateStatement.run(
+            variant.position,
+            variant.name,
+            variant.external_product_id ||
+              null,
+            imageFile.buffer,
+            imageFile.originalname,
+            imageFile.mimetype,
+            variant.id,
+            String(productId)
+          );
+        } else {
+          updateWithoutImage.run(
+            variant.position,
+            variant.name,
+            variant.external_product_id ||
+              null,
+            variant.id,
+            String(productId)
+          );
+        }
+
+        return;
+      }
+
+      const result =
+        insertStatement.run(
+          String(productId),
+          variant.position,
+          variant.name,
+          variant.external_product_id ||
+            null,
+          imageFile?.buffer ||
+            null,
+          imageFile?.originalname ||
+            null,
+          imageFile?.mimetype ||
+            null
+        );
+
+      keepIds.add(
+        Number(
+          result.lastInsertRowid
+        )
+      );
+    }
+  );
+
+  existing.forEach(row => {
+    if (
+      !keepIds.has(
+        Number(row.id)
+      )
+    ) {
+      db.prepare(
+        `DELETE FROM product_variants
+         WHERE id = ?
+         AND product_id = ?`
+      ).run(
+        row.id,
+        String(productId)
+      );
+    }
+  });
 }
 
 
@@ -1059,6 +1513,54 @@ app.get(
 
 
 app.get(
+  "/api/products/:productId/variants/:variantId/image",
+  (req, res) => {
+    const row =
+      db.prepare(
+        `SELECT
+           image_blob,
+           image_filename,
+           image_mime
+         FROM product_variants
+         WHERE id = ?
+         AND product_id = ?`
+      )
+        .get(
+          Number(
+            req.params.variantId
+          ),
+          String(
+            req.params.productId
+          )
+        );
+
+    if (
+      !row ||
+      !row.image_blob
+    ) {
+      return res
+        .sendStatus(404);
+    }
+
+    res.setHeader(
+      "Content-Type",
+      row.image_mime ||
+      "image/jpeg"
+    );
+
+    res.setHeader(
+      "Cache-Control",
+      "public,max-age=300"
+    );
+
+    res.send(
+      row.image_blob
+    );
+  }
+);
+
+
+app.get(
   "/api/products/:id/videos/:slot",
   async (req, res) => {
     const slot =
@@ -1455,6 +1957,26 @@ app.post(
         });
     }
 
+    let selectedVariants;
+
+    try {
+      selectedVariants =
+        validateSelectedVariants(
+          product,
+          req.body.selectedVariantIds
+        );
+    } catch (error) {
+      return res
+        .status(
+          error.statusCode || 400
+        )
+        .json({
+          error:
+            error.message ||
+            "Invalid product selection"
+        });
+    }
+
     const profile =
       db.prepare(
         `SELECT *
@@ -1510,6 +2032,40 @@ app.post(
         String(product.id),
         profile.tiktok_handle
       );
+
+    if (
+      selectedVariants.length > 0
+    ) {
+      const insertVariant =
+        db.prepare(`
+          INSERT INTO product_request_variants (
+            request_id,
+            variant_id,
+            variant_name_snapshot,
+            external_product_id_snapshot,
+            position
+          )
+          VALUES (?, ?, ?, ?, ?)
+        `);
+
+      const saveSelections =
+        db.transaction(() => {
+          selectedVariants.forEach(
+            (variant, index) => {
+              insertVariant.run(
+                result.lastInsertRowid,
+                Number(variant.id),
+                variant.name || "",
+                variant.external_product_id ||
+                  null,
+                index + 1
+              );
+            }
+          );
+        });
+
+      saveSelections();
+    }
 
     void sendAdminRequestPing(
       product.id
@@ -1574,7 +2130,55 @@ app.post(
     {
       name: "video_4",
       maxCount: 1
-    }
+    },
+    {
+      name: "variant_image_1",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_2",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_3",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_4",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_5",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_6",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_7",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_8",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_9",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_10",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_11",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_12",
+      maxCount: 1
+    },
   ]),
   (req, res) => {
     const id =
@@ -1608,13 +2212,16 @@ app.post(
         image_blob,
         image_filename,
         image_mime,
+        variants_enabled,
+        variant_selection_limit,
         active
       )
 
       VALUES (
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
-        ?, ?, ?, ?
+        ?, ?, ?, ?, ?,
+        ?
       )
     `).run(
       id,
@@ -1652,7 +2259,29 @@ app.post(
       imageFile?.mimetype ||
       null,
 
+      String(
+        req.body.variants_enabled
+      ) === "true"
+        ? 1
+        : 0,
+
+      Math.max(
+        1,
+        Math.min(
+          12,
+          Number(
+            req.body.variant_selection_limit
+          ) || 1
+        )
+      ),
+
       active
+    );
+
+    saveProductVariants(
+      id,
+      req.files,
+      req.body
     );
 
     saveProductVideos(
@@ -1692,7 +2321,55 @@ app.put(
     {
       name: "video_4",
       maxCount: 1
-    }
+    },
+    {
+      name: "variant_image_1",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_2",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_3",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_4",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_5",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_6",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_7",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_8",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_9",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_10",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_11",
+      maxCount: 1
+    },
+    {
+      name: "variant_image_12",
+      maxCount: 1
+    },
   ]),
   (req, res) => {
     const id =
@@ -1738,6 +2415,8 @@ app.put(
           image_filename = ?,
           image_mime = ?,
           image_url = NULL,
+          variants_enabled = ?,
+          variant_selection_limit = ?,
           active = ?,
           updated_at =
             CURRENT_TIMESTAMP
@@ -1753,6 +2432,23 @@ app.put(
         imageFile.buffer,
         imageFile.originalname,
         imageFile.mimetype,
+
+        String(
+          req.body.variants_enabled
+        ) === "true"
+          ? 1
+          : 0,
+
+        Math.max(
+          1,
+          Math.min(
+            12,
+            Number(
+              req.body.variant_selection_limit
+            ) || 1
+          )
+        ),
+
         active,
         id
       );
@@ -1767,6 +2463,8 @@ app.put(
           commission = ?,
           shop_ads = ?,
           brand_website = ?,
+          variants_enabled = ?,
+          variant_selection_limit = ?,
           active = ?,
           updated_at =
             CURRENT_TIMESTAMP
@@ -1779,10 +2477,33 @@ app.put(
         req.body.commission || "0%",
         req.body.shop_ads || "—",
         req.body.brand_website || "",
+
+        String(
+          req.body.variants_enabled
+        ) === "true"
+          ? 1
+          : 0,
+
+        Math.max(
+          1,
+          Math.min(
+            12,
+            Number(
+              req.body.variant_selection_limit
+            ) || 1
+          )
+        ),
+
         active,
         id
       );
     }
+
+    saveProductVariants(
+      id,
+      req.files,
+      req.body
+    );
 
     saveProductVideos(
       id,
@@ -1809,6 +2530,11 @@ app.delete(
 
     db.prepare(
       `DELETE FROM product_videos
+       WHERE product_id = ?`
+    ).run(id);
+
+    db.prepare(
+      `DELETE FROM product_variants
        WHERE product_id = ?`
     ).run(id);
 

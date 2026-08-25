@@ -121,7 +121,10 @@ export const api = {
     );
   },
 
-  requestProduct(productId) {
+  requestProduct(
+    productId,
+    selectedVariantIds = []
+  ) {
     return request(
       "/api/requests",
       {
@@ -134,7 +137,14 @@ export const api = {
 
         body:
           JSON.stringify({
-            productId
+            productId,
+
+            selectedVariantIds:
+              Array.isArray(
+                selectedVariantIds
+              )
+                ? selectedVariantIds
+                : []
           })
       }
     );

@@ -192,7 +192,10 @@ function App() {
   }
 
 
-  async function beginRequest(product) {
+  async function beginRequest(
+    product,
+    selectedVariantIds = []
+  ) {
     const latest =
       await api.profile();
 
@@ -201,7 +204,8 @@ function App() {
     if (!latest?.tiktok_handle) {
       setRequestState({
         stage: "username",
-        product
+        product,
+        selectedVariantIds
       });
 
       return;
@@ -209,7 +213,8 @@ function App() {
 
     setRequestState({
       stage: "confirm",
-      product
+      product,
+      selectedVariantIds
     });
   }
 
@@ -238,7 +243,11 @@ function App() {
     setRequestState({
       stage: "confirm",
       product:
-        requestState.product
+        requestState.product,
+
+      selectedVariantIds:
+        requestState.selectedVariantIds ||
+        []
     });
   }
 
@@ -249,7 +258,9 @@ function App() {
 
     try {
       await api.requestProduct(
-        product.id
+        product.id,
+        requestState.selectedVariantIds ||
+          []
       );
 
       setRequestState({
@@ -465,9 +476,10 @@ function App() {
             setSelected(null)
           }
 
-          onRequest={() =>
+          onRequest={selectedVariantIds =>
             beginRequest(
-              selected
+              selected,
+              selectedVariantIds
             )
           }
         />
@@ -640,12 +652,92 @@ function ProductDetail({
     product.shop_ads &&
     product.shop_ads !== "—";
 
+  const variants =
+    Array.isArray(
+      product.variants
+    )
+      ? product.variants
+      : [];
+
+  const hasSelectableVariants =
+    product.variants_enabled === true &&
+    variants.length > 0;
+
+  const variantSelectionLimit =
+    Math.max(
+      1,
+      Math.min(
+        variants.length || 1,
+        Number(
+          product.variant_selection_limit
+        ) || 1
+      )
+    );
+
+  const [
+    selectedVariantIds,
+    setSelectedVariantIds
+  ] = useState(
+    hasSelectableVariants
+      ? [
+          Number(
+            variants[0].id
+          )
+        ]
+      : []
+  );
+
   const creatorVideos =
     Array.isArray(
       product.creator_videos
     )
       ? product.creator_videos
       : [];
+
+  function toggleVariant(
+    variantId
+  ) {
+    setSelectedVariantIds(
+      current => {
+        const id =
+          Number(variantId);
+
+        if (
+          current.includes(id)
+        ) {
+          return current.filter(
+            item =>
+              item !== id
+          );
+        }
+
+        if (
+          current.length >=
+          variantSelectionLimit
+        ) {
+          return current;
+        }
+
+        return [
+          ...current,
+          id
+        ];
+      }
+    );
+  }
+
+  function handleRequest() {
+    if (
+      hasSelectableVariants &&
+      selectedVariantIds.length < 1
+    ) {
+      return;
+    }
+
+    onRequest(
+      selectedVariantIds
+    );
+  }
 
   return (
     <main className="detail-page">
@@ -751,7 +843,12 @@ function ProductDetail({
                         "Open Creator Deals inside Discord to request this product."
                       );
                     }
-                  : onRequest
+                  : handleRequest
+              }
+              disabled={
+                !browserMode &&
+                hasSelectableVariants &&
+                selectedVariantIds.length < 1
               }
             >
               {browserMode
@@ -777,6 +874,107 @@ function ProductDetail({
 
         </section>
       </div>
+
+
+      {hasSelectableVariants && (
+        <section className="product-variants-section">
+
+          <div className="product-variants-heading">
+
+            <div>
+              <h3>
+                Choose Your Products
+              </h3>
+
+              <p>
+                Select up to{" "}
+                {variantSelectionLimit}{" "}
+                {variantSelectionLimit === 1
+                  ? "product"
+                  : "products"}{" "}
+                you'd like to receive.
+              </p>
+            </div>
+
+            <div className="product-variants-count">
+              {selectedVariantIds.length}
+              {" / "}
+              {variantSelectionLimit}
+              {" selected"}
+            </div>
+
+          </div>
+
+
+          <div className="product-variants-grid">
+
+            {variants.map(variant => {
+              const variantId =
+                Number(variant.id);
+
+              const isSelected =
+                selectedVariantIds.includes(
+                  variantId
+                );
+
+              const limitReached =
+                selectedVariantIds.length >=
+                  variantSelectionLimit &&
+                !isSelected;
+
+              return (
+                <button
+                  type="button"
+                  className={
+                    isSelected
+                      ? "product-variant-card selected"
+                      : "product-variant-card"
+                  }
+                  key={variantId}
+                  disabled={limitReached}
+                  onClick={() =>
+                    toggleVariant(
+                      variantId
+                    )
+                  }
+                  aria-pressed={
+                    isSelected
+                  }
+                >
+
+                  <div className="product-variant-image-wrap">
+
+                    <img
+                      src={
+                        `/api/products/${encodeURIComponent(
+                          product.id
+                        )}/variants/${encodeURIComponent(
+                          variantId
+                        )}/image`
+                      }
+                      alt=""
+                    />
+
+                    {isSelected && (
+                      <span className="product-variant-check">
+                        ✓
+                      </span>
+                    )}
+
+                  </div>
+
+                  <div className="product-variant-name">
+                    {variant.name}
+                  </div>
+
+                </button>
+              );
+            })}
+
+          </div>
+
+        </section>
+      )}
 
 
       {creatorVideos.length > 0 && (

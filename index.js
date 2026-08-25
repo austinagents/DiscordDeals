@@ -130,6 +130,78 @@ const productColumns =
 
 if (
   !productColumns.has(
+    "variants_enabled"
+  )
+) {
+  db.exec(
+    "ALTER TABLE products ADD COLUMN variants_enabled INTEGER NOT NULL DEFAULT 0"
+  );
+
+  console.log(
+    "✓ Added products.variants_enabled"
+  );
+}
+
+if (
+  !productColumns.has(
+    "variant_selection_limit"
+  )
+) {
+  db.exec(
+    "ALTER TABLE products ADD COLUMN variant_selection_limit INTEGER NOT NULL DEFAULT 1"
+  );
+
+  console.log(
+    "✓ Added products.variant_selection_limit"
+  );
+}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    name TEXT NOT NULL,
+    external_product_id TEXT,
+    image_blob BLOB,
+    image_filename TEXT,
+    image_mime TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS
+  idx_product_variants_product_id
+  ON product_variants (
+    product_id,
+    position
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_request_variants (
+    request_id INTEGER NOT NULL,
+    variant_id INTEGER,
+    variant_name_snapshot TEXT NOT NULL,
+    external_product_id_snapshot TEXT,
+    position INTEGER NOT NULL DEFAULT 0
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS
+  idx_product_request_variants_request_id
+  ON product_request_variants (
+    request_id,
+    position
+  )
+`);
+
+
+if (
+  !productColumns.has(
     "announcement_sent_at"
   )
 ) {
@@ -263,6 +335,119 @@ function productById(id) {
     .prepare("SELECT * FROM products WHERE id = ?")
     .get(String(id));
 }
+
+function productVariants(
+  productId
+) {
+  return db
+    .prepare(`
+      SELECT
+        id,
+        position,
+        name,
+        external_product_id
+      FROM product_variants
+      WHERE product_id = ?
+      ORDER BY
+        position ASC,
+        id ASC
+    `)
+    .all(
+      String(productId)
+    );
+}
+
+
+function defaultProductVariant(
+  productId
+) {
+  return db
+    .prepare(`
+      SELECT
+        id,
+        position,
+        name,
+        external_product_id
+      FROM product_variants
+      WHERE product_id = ?
+      ORDER BY
+        position ASC,
+        id ASC
+      LIMIT 1
+    `)
+    .get(
+      String(productId)
+    ) || null;
+}
+
+
+function productHasSelectableVariants(
+  product
+) {
+  return Boolean(
+    product &&
+    Number(
+      product.variants_enabled
+    ) === 1 &&
+    defaultProductVariant(
+      product.id
+    )
+  );
+}
+
+
+function saveDefaultRequestVariant(
+  requestId,
+  productId
+) {
+  const variant =
+    defaultProductVariant(
+      productId
+    );
+
+  if (!variant) {
+    return;
+  }
+
+  db.prepare(`
+    INSERT INTO product_request_variants (
+      request_id,
+      variant_id,
+      variant_name_snapshot,
+      external_product_id_snapshot,
+      position
+    )
+    VALUES (?, ?, ?, ?, 1)
+  `).run(
+    Number(requestId),
+    Number(variant.id),
+    variant.name || "",
+    variant.external_product_id ||
+      null
+  );
+}
+
+
+function requestVariants(
+  requestId
+) {
+  return db
+    .prepare(`
+      SELECT
+        variant_name_snapshot,
+        external_product_id_snapshot,
+        position
+      FROM product_request_variants
+      WHERE request_id = ?
+      ORDER BY
+        position ASC,
+        rowid ASC
+    `)
+    .all(
+      Number(requestId)
+    );
+}
+
 
 function makeProductId(name) {
   const base =
@@ -2127,14 +2312,38 @@ function buildRequestDetail(
         .addTextDisplayComponents(
           new TextDisplayBuilder()
             .setContent(
-              [
-                `### ${row.tiktok_handle}`,
-                `Discord: <@${row.discord_user_id}>`,
-                `Source: **${requestSourceLabel(row.source)}**`,
-                Number.isFinite(unix)
-                  ? `Requested: <t:${unix}:f>`
-                  : `Requested: ${row.created_at}`
-              ].join("\n")
+              (() => {
+                const lines = [
+                  `### ${row.tiktok_handle}`,
+                  `Discord: <@${row.discord_user_id}>`,
+                  `Source: **${requestSourceLabel(row.source)}**`,
+                  Number.isFinite(unix)
+                    ? `Requested: <t:${unix}:f>`
+                    : `Requested: ${row.created_at}`
+                ];
+
+                const selections =
+                  requestVariants(
+                    row.id
+                  );
+
+                if (
+                  selections.length > 0
+                ) {
+                  lines.push(
+                    "",
+                    "**Selected Variants**",
+                    ...selections.map(
+                      variant =>
+                        `• ${variant.variant_name_snapshot}`
+                    )
+                  );
+                }
+
+                return lines.join(
+                  "\n"
+                );
+              })()
             )
         );
     }
@@ -3464,18 +3673,30 @@ client.on(
               interaction.user.id
             );
 
-          db.prepare(`
-            INSERT INTO product_requests (
-              discord_user_id,
-              product_id,
-              tiktok_handle
+          const requestResult =
+            db.prepare(`
+              INSERT INTO product_requests (
+                discord_user_id,
+                product_id,
+                tiktok_handle
+              )
+              VALUES (?, ?, ?)
+            `).run(
+              interaction.user.id,
+              productId,
+              handle || ""
+            );
+
+          if (
+            productHasSelectableVariants(
+              product
             )
-            VALUES (?, ?, ?)
-          `).run(
-            interaction.user.id,
-            productId,
-            handle || ""
-          );
+          ) {
+            saveDefaultRequestVariant(
+              requestResult.lastInsertRowid,
+              productId
+            );
+          }
 
           void sendAdminRequestPing(
             productId
@@ -3580,12 +3801,24 @@ client.on(
             return;
           }
 
-          insertProductRequest(
-            interaction.user.id,
-            productId,
-            handle,
-            "quick_request"
-          );
+          const requestResult =
+            insertProductRequest(
+              interaction.user.id,
+              productId,
+              handle,
+              "quick_request"
+            );
+
+          if (
+            productHasSelectableVariants(
+              product
+            )
+          ) {
+            saveDefaultRequestVariant(
+              requestResult.lastInsertRowid,
+              productId
+            );
+          }
 
           void sendAdminRequestPing(
             productId

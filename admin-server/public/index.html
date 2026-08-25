@@ -290,6 +290,170 @@
       resize: vertical;
     }
 
+    .variant-manager {
+      grid-column: 1 / -1;
+      padding: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .variant-manager-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+    }
+
+    .variant-manager-toggle input {
+      width: auto;
+    }
+
+    .variant-manager-content {
+      margin-top: 16px;
+    }
+
+    .variant-manager-content.hidden {
+      display: none;
+    }
+
+    .variant-manager-top {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .variant-limit {
+      max-width: 220px;
+      margin: 0;
+    }
+
+    .variant-manager-summary {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .variant-manager-count {
+      font-size: 13px;
+      font-weight: 700;
+      opacity: 0.75;
+      white-space: nowrap;
+    }
+
+    .variant-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .variant-row {
+      display: grid;
+      grid-template-columns:
+        30px
+        minmax(160px, 1.35fr)
+        minmax(120px, 1fr)
+        minmax(180px, 1fr)
+        34px;
+      gap: 10px;
+      align-items: end;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .variant-number {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 38px;
+      font-size: 12px;
+      font-weight: 800;
+      opacity: 0.55;
+    }
+
+    .variant-current-image {
+      margin-bottom: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      opacity: 0.7;
+    }
+
+    .variant-remove {
+      width: 34px;
+      height: 38px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.035);
+      color: inherit;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .variant-remove:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .variant-empty {
+      padding: 16px;
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      text-align: center;
+      font-size: 13px;
+      opacity: 0.65;
+    }
+
+    @media (max-width: 900px) {
+      .variant-row {
+        grid-template-columns:
+          30px
+          minmax(0, 1fr)
+          minmax(0, 1fr)
+          34px;
+      }
+
+      .variant-image-field {
+        grid-column: 2 / 4;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .variant-manager-top {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .variant-limit {
+        max-width: none;
+      }
+
+      .variant-manager-summary {
+        justify-content: space-between;
+      }
+
+      .variant-row {
+        grid-template-columns:
+          28px
+          minmax(0, 1fr)
+          34px;
+      }
+
+      .variant-name-field,
+      .variant-id-field,
+      .variant-image-field {
+        grid-column: 2 / 3;
+      }
+
+      .variant-remove {
+        grid-column: 3;
+        grid-row: 1;
+      }
+    }
+
     .creator-video-manager {
       grid-column: 1 / -1;
 
@@ -782,6 +946,67 @@
           />
         </label>
 
+        <section class="variant-manager">
+
+          <label class="variant-manager-toggle">
+            <input
+              id="variantsEnabled"
+              type="checkbox"
+            />
+
+            <span>
+              Selectable Variants
+            </span>
+          </label>
+
+          <div
+            id="variantManagerContent"
+            class="variant-manager-content hidden"
+          >
+
+            <div class="variant-manager-top">
+
+              <label class="field variant-limit">
+                <span>
+                  Creator can select up to
+                </span>
+
+                <select id="variantSelectionLimit">
+                  <option value="1">1</option>
+                </select>
+              </label>
+
+              <div class="variant-manager-summary">
+
+                <span
+                  id="variantCount"
+                  class="variant-manager-count"
+                >
+                  0 of 12 variants
+                </span>
+
+                <button
+                  id="addVariant"
+                  type="button"
+                  class="secondary"
+                >
+                  + Add Variant
+                </button>
+
+              </div>
+
+            </div>
+
+            <div
+              id="variantList"
+              class="variant-list"
+            ></div>
+
+          </div>
+
+        </section>
+
+
         <section class="creator-video-manager">
 
           <div class="creator-video-manager-title">
@@ -968,6 +1193,8 @@
   };
 
   let editingId = null;
+
+  let editorVariants = [];
 
   const $ =
     id =>
@@ -1575,6 +1802,297 @@
   }
 
 
+  function updateVariantLimitOptions() {
+    const select =
+      $("variantSelectionLimit");
+
+    const current =
+      Math.max(
+        1,
+        Number(select.value) || 1
+      );
+
+    const max =
+      Math.max(
+        1,
+        editorVariants.length || 1
+      );
+
+    select.innerHTML = "";
+
+    for (
+      let value = 1;
+      value <= max;
+      value++
+    ) {
+      const option =
+        document.createElement(
+          "option"
+        );
+
+      option.value =
+        String(value);
+
+      option.textContent =
+        String(value);
+
+      select.append(option);
+    }
+
+    select.value =
+      String(
+        Math.min(
+          current,
+          max
+        )
+      );
+  }
+
+
+  function renderVariants() {
+    const root =
+      $("variantList");
+
+    root.innerHTML = "";
+
+    $("variantCount").textContent =
+      `${editorVariants.length} of 12 variants`;
+
+    $("addVariant").disabled =
+      editorVariants.length >= 12;
+
+    updateVariantLimitOptions();
+
+    if (!editorVariants.length) {
+      const empty =
+        document.createElement(
+          "div"
+        );
+
+      empty.className =
+        "variant-empty";
+
+      empty.textContent =
+        "No variants added yet.";
+
+      root.append(empty);
+
+      return;
+    }
+
+    editorVariants.forEach(
+      (variant, index) => {
+        const row =
+          document.createElement(
+            "div"
+          );
+
+        row.className =
+          "variant-row";
+
+        const number =
+          document.createElement(
+            "div"
+          );
+
+        number.className =
+          "variant-number";
+
+        number.textContent =
+          String(index + 1);
+
+        const nameField =
+          document.createElement(
+            "label"
+          );
+
+        nameField.className =
+          "field variant-name-field";
+
+        const nameLabel =
+          document.createElement(
+            "span"
+          );
+
+        nameLabel.textContent =
+          "Variant Name";
+
+        const nameInput =
+          document.createElement(
+            "input"
+          );
+
+        nameInput.placeholder =
+          "Trail Marker";
+
+        nameInput.value =
+          variant.name || "";
+
+        nameInput.oninput =
+          () => {
+            editorVariants[index].name =
+              nameInput.value;
+          };
+
+        nameField.append(
+          nameLabel,
+          nameInput
+        );
+
+        const idField =
+          document.createElement(
+            "label"
+          );
+
+        idField.className =
+          "field variant-id-field";
+
+        const idLabel =
+          document.createElement(
+            "span"
+          );
+
+        idLabel.textContent =
+          "Product ID";
+
+        const idInput =
+          document.createElement(
+            "input"
+          );
+
+        idInput.placeholder =
+          "Optional";
+
+        idInput.value =
+          variant.external_product_id ||
+          "";
+
+        idInput.oninput =
+          () => {
+            editorVariants[index]
+              .external_product_id =
+                idInput.value;
+          };
+
+        idField.append(
+          idLabel,
+          idInput
+        );
+
+        const imageField =
+          document.createElement(
+            "label"
+          );
+
+        imageField.className =
+          "field variant-image-field";
+
+        const imageLabel =
+          document.createElement(
+            "span"
+          );
+
+        imageLabel.textContent =
+          "Image";
+
+        imageField.append(
+          imageLabel
+        );
+
+        if (
+          variant.image_filename
+        ) {
+          const current =
+            document.createElement(
+              "div"
+            );
+
+          current.className =
+            "variant-current-image";
+
+          current.textContent =
+            "Current image ✓";
+
+          imageField.append(
+            current
+          );
+        }
+
+        const imageInput =
+          document.createElement(
+            "input"
+          );
+
+        imageInput.type =
+          "file";
+
+        imageInput.accept =
+          "image/*";
+
+        imageInput.onchange =
+          () => {
+            editorVariants[index]
+              .new_image =
+                imageInput.files[0] ||
+                null;
+          };
+
+        imageField.append(
+          imageInput
+        );
+
+        const remove =
+          document.createElement(
+            "button"
+          );
+
+        remove.type =
+          "button";
+
+        remove.className =
+          "variant-remove";
+
+        remove.textContent =
+          "×";
+
+        remove.title =
+          "Remove variant";
+
+        remove.onclick =
+          () => {
+            editorVariants.splice(
+              index,
+              1
+            );
+
+            renderVariants();
+          };
+
+        row.append(
+          number,
+          nameField,
+          idField,
+          imageField,
+          remove
+        );
+
+        root.append(row);
+      }
+    );
+  }
+
+
+  function syncVariantManagerVisibility() {
+    $("variantManagerContent")
+      .classList
+      .toggle(
+        "hidden",
+        !$("variantsEnabled")
+          .checked
+      );
+  }
+
+
   function openEditor(product = null) {
     editingId =
       product?.id || null;
@@ -1621,6 +2139,61 @@
       product
         ? Boolean(product.active)
         : true;
+
+    $("variantsEnabled").checked =
+      product
+        ? Boolean(
+            product.variants_enabled
+          )
+        : false;
+
+    editorVariants =
+      Array.isArray(
+        product?.variants
+      )
+        ? product.variants.map(
+            variant => ({
+              id:
+                variant.id,
+
+              name:
+                variant.name || "",
+
+              external_product_id:
+                variant.external_product_id ||
+                "",
+
+              image_filename:
+                variant.image_filename ||
+                "",
+
+              new_image:
+                null
+            })
+          )
+        : [];
+
+    renderVariants();
+
+    $("variantSelectionLimit").value =
+      String(
+        Math.min(
+          Math.max(
+            1,
+            Number(
+              product
+                ?.variant_selection_limit
+            ) || 1
+          ),
+          Math.max(
+            1,
+            editorVariants.length ||
+            1
+          )
+        )
+      );
+
+    syncVariantManagerVisibility();
 
     $("image").value = "";
 
@@ -1866,6 +2439,87 @@
       )
     );
 
+    data.append(
+      "variants_enabled",
+      String(
+        $("variantsEnabled")
+          .checked
+      )
+    );
+
+    data.append(
+      "variant_selection_limit",
+      String(
+        Math.max(
+          1,
+          Number(
+            $("variantSelectionLimit")
+              .value
+          ) || 1
+        )
+      )
+    );
+
+    const cleanedVariants =
+      editorVariants
+        .slice(0, 12)
+        .map(variant => ({
+          id:
+            variant.id || null,
+
+          name:
+            String(
+              variant.name || ""
+            ).trim(),
+
+          external_product_id:
+            String(
+              variant
+                .external_product_id ||
+              ""
+            ).trim()
+        }));
+
+    if (
+      $("variantsEnabled").checked &&
+      (
+        cleanedVariants.length === 0 ||
+        cleanedVariants.some(
+          variant =>
+            !variant.name
+        )
+      )
+    ) {
+      alert(
+        "Each variant needs a name."
+      );
+
+      return;
+    }
+
+    data.append(
+      "variants_json",
+      JSON.stringify(
+        cleanedVariants.filter(
+          variant =>
+            variant.name
+        )
+      )
+    );
+
+    editorVariants.forEach(
+      (variant, index) => {
+        if (
+          variant.new_image
+        ) {
+          data.append(
+            `variant_image_${index + 1}`,
+            variant.new_image
+          );
+        }
+      }
+    );
+
     if (
       $("image")
         .files[0]
@@ -1961,6 +2615,28 @@
 
   $("cancel").onclick =
     closeEditor;
+
+  $("variantsEnabled").onchange =
+    syncVariantManagerVisibility;
+
+  $("addVariant").onclick =
+    () => {
+      if (
+        editorVariants.length >= 12
+      ) {
+        return;
+      }
+
+      editorVariants.push({
+        id: null,
+        name: "",
+        external_product_id: "",
+        image_filename: "",
+        new_image: null
+      });
+
+      renderVariants();
+    };
 
   $("save").onclick =
     saveProduct;
