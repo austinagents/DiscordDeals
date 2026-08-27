@@ -579,7 +579,9 @@ function ProductCard({
           src={
             `/api/products/${encodeURIComponent(
               product.id
-            )}/image`
+            )}/image?v=${encodeURIComponent(
+              product.updated_at || ""
+            )}`
           }
           alt=""
         />
@@ -756,8 +758,10 @@ function ProductDetail({
           <img
             src={
               `/api/products/${encodeURIComponent(
-                product.id
-              )}/image`
+              product.id
+            )}/image?v=${encodeURIComponent(
+              product.updated_at || ""
+            )}`
             }
             alt=""
           />
@@ -1501,8 +1505,10 @@ function AdminPanel({
                 <img
                   src={
                     `/api/products/${encodeURIComponent(
-                      product.id
-                    )}/image`
+              product.id
+            )}/image?v=${encodeURIComponent(
+              product.updated_at || ""
+            )}`
                   }
                   alt=""
                 />
