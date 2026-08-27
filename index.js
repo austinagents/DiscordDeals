@@ -128,6 +128,21 @@ const productColumns =
       .map((row) => row.name)
   );
 
+
+if (
+  !productColumns.has(
+    "image_key"
+  )
+) {
+  db.exec(
+    "ALTER TABLE products ADD COLUMN image_key TEXT"
+  );
+
+  console.log(
+    "✓ Added products.image_key"
+  );
+}
+
 if (
   !productColumns.has(
     "variants_enabled"
@@ -775,11 +790,25 @@ function v2(components, extra = {}) {
 
 function productMedia(product, prefix = "product") {
   /*
-   * Images uploaded through the Admin UI are stored as raw
-   * image bytes in SQLite, so they survive bot restarts and
-   * don't depend on expiring CDN URLs.
+   * New product images are stored in Cloudflare R2.
+   * Discord loads them through the public Activity API,
+   * which handles the signed R2 redirect.
    */
+  if (product.image_key) {
+    return {
+      url:
+        `https://partnerlinks.app/api/products/${encodeURIComponent(
+          product.id
+        )}/image?v=${encodeURIComponent(
+          product.updated_at || Date.now()
+        )}`,
+      files: [],
+    };
+  }
 
+  /*
+   * Legacy SQLite image fallback.
+   */
   if (product.image_blob && product.image_filename) {
     const safeFilename =
       `${prefix}-${product.id}-${product.image_filename}`
@@ -797,6 +826,9 @@ function productMedia(product, prefix = "product") {
     };
   }
 
+  /*
+   * Legacy external URL fallback.
+   */
   return {
     url:
       product.image_url ||
