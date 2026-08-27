@@ -165,6 +165,12 @@ db.exec(`
   )
 `);
 
+addColumn(
+  "product_variants",
+  "image_key",
+  "image_key TEXT"
+);
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS
   idx_product_variants_product_id
@@ -498,13 +504,7 @@ function saveProductVariants(
     new Set();
 
   variants.forEach(
-    (variant, index) => {
-      const imageFile =
-        files?.[
-          `variant_image_${index + 1}`
-        ]?.[0] ||
-        null;
-
+    variant => {
       if (variant.id) {
         const matching =
           existing.find(
@@ -521,51 +521,24 @@ function saveProductVariants(
           Number(variant.id)
         );
 
-        if (imageFile) {
-          db.prepare(`
-            UPDATE product_variants
-            SET
-              position = ?,
-              name = ?,
-              external_product_id = ?,
-              image_blob = ?,
-              image_filename = ?,
-              image_mime = ?,
-              updated_at =
-                CURRENT_TIMESTAMP
-            WHERE id = ?
-            AND product_id = ?
-          `).run(
-            variant.position,
-            variant.name,
-            variant.external_product_id ||
-              null,
-            imageFile.buffer,
-            imageFile.originalname,
-            imageFile.mimetype,
-            variant.id,
-            String(productId)
-          );
-        } else {
-          db.prepare(`
-            UPDATE product_variants
-            SET
-              position = ?,
-              name = ?,
-              external_product_id = ?,
-              updated_at =
-                CURRENT_TIMESTAMP
-            WHERE id = ?
-            AND product_id = ?
-          `).run(
-            variant.position,
-            variant.name,
-            variant.external_product_id ||
-              null,
-            variant.id,
-            String(productId)
-          );
-        }
+        db.prepare(`
+          UPDATE product_variants
+          SET
+            position = ?,
+            name = ?,
+            external_product_id = ?,
+            updated_at =
+              CURRENT_TIMESTAMP
+          WHERE id = ?
+          AND product_id = ?
+        `).run(
+          variant.position,
+          variant.name,
+          variant.external_product_id ||
+            null,
+          variant.id,
+          String(productId)
+        );
 
         return;
       }
@@ -579,20 +552,18 @@ function saveProductVariants(
             external_product_id,
             image_blob,
             image_filename,
-            image_mime
+            image_mime,
+            image_key
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          VALUES (
+            ?, ?, ?, ?,
+            NULL, NULL, NULL, NULL
+          )
         `).run(
           String(productId),
           variant.position,
           variant.name,
           variant.external_product_id ||
-            null,
-          imageFile?.buffer ||
-            null,
-          imageFile?.originalname ||
-            null,
-          imageFile?.mimetype ||
             null
         );
 
@@ -618,6 +589,22 @@ function saveProductVariants(
         row.id,
         String(productId)
       );
+
+      if (row.image_key) {
+        r2.send(
+          new DeleteObjectCommand({
+            Bucket:
+              R2_BUCKET,
+            Key:
+              row.image_key
+          })
+        ).catch(error => {
+          console.error(
+            "Could not remove deleted R2 variant image:",
+            error
+          );
+        });
+      }
     }
   });
 }
@@ -1106,6 +1093,257 @@ app.put(
   }
 );
 
+
+
+/* ===============================
+
+   R2 VARIANT IMAGE API
+
+================================ */
+
+app.post(
+  "/admin-api/products/:productId/variants/:variantId/image/presign",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const productId =
+        String(
+          req.params.productId
+        );
+
+      const variantId =
+        Number(
+          req.params.variantId
+        );
+
+      const variant =
+        db.prepare(
+          `SELECT *
+           FROM product_variants
+           WHERE id = ?
+           AND product_id = ?`
+        ).get(
+          variantId,
+          productId
+        );
+
+      if (!variant) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "Variant not found"
+          });
+      }
+
+      const filename =
+        String(
+          req.body.filename ||
+          "variant.jpg"
+        );
+
+      const mime =
+        String(
+          req.body.mime ||
+          "image/jpeg"
+        );
+
+      if (
+        !mime.startsWith(
+          "image/"
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "File must be an image"
+          });
+      }
+
+      const rawExtension =
+        path.extname(filename)
+          .toLowerCase();
+
+      const extension =
+        /^[.][a-z0-9]{1,8}$/
+          .test(rawExtension)
+          ? rawExtension
+          : ".jpg";
+
+      const key =
+        [
+          "variant-images",
+          productId,
+          `variant-${variantId}-${crypto.randomUUID()}${extension}`
+        ].join("/");
+
+      const uploadUrl =
+        await getSignedUrl(
+          r2,
+          new PutObjectCommand({
+            Bucket:
+              R2_BUCKET,
+            Key:
+              key,
+            ContentType:
+              mime
+          }),
+          {
+            expiresIn:
+              15 * 60
+          }
+        );
+
+      res.json({
+        key,
+        upload_url:
+          uploadUrl
+      });
+
+    } catch (error) {
+      console.error(
+        "R2 variant image presign error:",
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            "Could not prepare variant image upload"
+        });
+    }
+  }
+);
+
+
+app.post(
+  "/admin-api/products/:productId/variants/:variantId/image/complete",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const productId =
+        String(
+          req.params.productId
+        );
+
+      const variantId =
+        Number(
+          req.params.variantId
+        );
+
+      const variant =
+        db.prepare(
+          `SELECT *
+           FROM product_variants
+           WHERE id = ?
+           AND product_id = ?`
+        ).get(
+          variantId,
+          productId
+        );
+
+      if (!variant) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "Variant not found"
+          });
+      }
+
+      const key =
+        String(
+          req.body.key || ""
+        );
+
+      const requiredPrefix =
+        `variant-images/${productId}/variant-${variantId}-`;
+
+      if (
+        !key.startsWith(
+          requiredPrefix
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Invalid variant image key"
+          });
+      }
+
+      const oldKey =
+        variant.image_key;
+
+      db.prepare(`
+        UPDATE product_variants
+        SET
+          image_blob =
+            zeroblob(0),
+          image_filename = ?,
+          image_mime = ?,
+          image_key = ?,
+          updated_at =
+            CURRENT_TIMESTAMP
+        WHERE id = ?
+        AND product_id = ?
+      `).run(
+        String(
+          req.body.filename || ""
+        ),
+        String(
+          req.body.mime ||
+          "image/jpeg"
+        ),
+        key,
+        variantId,
+        productId
+      );
+
+      if (
+        oldKey &&
+        oldKey !== key
+      ) {
+        try {
+          await r2.send(
+            new DeleteObjectCommand({
+              Bucket:
+                R2_BUCKET,
+              Key:
+                oldKey
+            })
+          );
+        } catch (error) {
+          console.error(
+            "Could not remove replaced R2 variant image:",
+            error
+          );
+        }
+      }
+
+      res.json(
+        productById(
+          productId
+        )
+      );
+
+    } catch (error) {
+      console.error(
+        "R2 variant image completion error:",
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            "Could not finish variant image upload"
+        });
+    }
+  }
+);
 
 
 /* ===============================

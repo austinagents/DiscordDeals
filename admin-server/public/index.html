@@ -2259,6 +2259,126 @@
 
 
 
+  async function syncVariantImages(
+    savedProduct
+  ) {
+    const productId =
+      savedProduct.id;
+
+    const savedVariants =
+      Array.isArray(
+        savedProduct.variants
+      )
+        ? savedProduct.variants
+        : [];
+
+    const activeVariants =
+      editorVariants
+        .slice(0, 12)
+        .filter(
+          variant =>
+            String(
+              variant.name || ""
+            ).trim()
+        );
+
+    for (
+      let index = 0;
+      index < activeVariants.length;
+      index++
+    ) {
+      const editorVariant =
+        activeVariants[index];
+
+      const file =
+        editorVariant.new_image;
+
+      if (!file) {
+        continue;
+      }
+
+      const savedVariant =
+        savedVariants[index];
+
+      if (!savedVariant?.id) {
+        throw new Error(
+          `Could not resolve variant ${index + 1}`
+        );
+      }
+
+      const signed =
+        await request(
+          `/admin-api/products/${encodeURIComponent(
+            productId
+          )}/variants/${encodeURIComponent(
+            savedVariant.id
+          )}/image/presign`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json"
+            },
+            body:
+              JSON.stringify({
+                filename:
+                  file.name,
+                mime:
+                  file.type ||
+                  "image/jpeg"
+              })
+          }
+        );
+
+      const upload =
+        await fetch(
+          signed.upload_url,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type":
+                file.type ||
+                "image/jpeg"
+            },
+            body:
+              file
+          }
+        );
+
+      if (!upload.ok) {
+        throw new Error(
+          `Variant ${index + 1} image upload failed`
+        );
+      }
+
+      await request(
+        `/admin-api/products/${encodeURIComponent(
+          productId
+        )}/variants/${encodeURIComponent(
+          savedVariant.id
+        )}/image/complete`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+          body:
+            JSON.stringify({
+              key:
+                signed.key,
+              filename:
+                file.name,
+              mime:
+                file.type ||
+                "image/jpeg"
+            })
+        }
+      );
+    }
+  }
+
+
   async function syncCreatorVideos(
     productId
   ) {
@@ -2507,18 +2627,6 @@
       )
     );
 
-    editorVariants.forEach(
-      (variant, index) => {
-        if (
-          variant.new_image
-        ) {
-          data.append(
-            `variant_image_${index + 1}`,
-            variant.new_image
-          );
-        }
-      }
-    );
 
     if (
       $("image")
@@ -2557,6 +2665,10 @@
             }
           );
       }
+
+      await syncVariantImages(
+        savedProduct
+      );
 
       await syncCreatorVideos(
         savedProduct.id

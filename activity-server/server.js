@@ -297,6 +297,12 @@ db.exec(`
   )
 `);
 
+addColumn(
+  "product_variants",
+  "image_key",
+  "image_key TEXT"
+);
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS
   idx_product_variants_product_id
@@ -1514,13 +1520,14 @@ app.get(
 
 app.get(
   "/api/products/:productId/variants/:variantId/image",
-  (req, res) => {
+  async (req, res) => {
     const row =
       db.prepare(
         `SELECT
            image_blob,
            image_filename,
-           image_mime
+           image_mime,
+           image_key
          FROM product_variants
          WHERE id = ?
          AND product_id = ?`
@@ -1534,9 +1541,55 @@ app.get(
           )
         );
 
+    if (!row) {
+      return res
+        .sendStatus(404);
+    }
+
+    if (row.image_key) {
+      try {
+        const imageUrl =
+          await getSignedUrl(
+            r2,
+            new GetObjectCommand({
+              Bucket:
+                R2_BUCKET,
+              Key:
+                row.image_key
+            }),
+            {
+              expiresIn:
+                60 * 60
+            }
+          );
+
+        res.setHeader(
+          "Cache-Control",
+          "private,no-store"
+        );
+
+        return res.redirect(
+          302,
+          imageUrl
+        );
+
+      } catch (error) {
+        console.error(
+          "R2 variant image URL error:",
+          error
+        );
+
+        return res
+          .sendStatus(502);
+      }
+    }
+
+    /*
+     * Legacy SQLite BLOB fallback.
+     */
     if (
-      !row ||
-      !row.image_blob
+      !row.image_blob ||
+      row.image_blob.length === 0
     ) {
       return res
         .sendStatus(404);
