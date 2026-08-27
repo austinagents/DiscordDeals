@@ -2259,6 +2259,84 @@
 
 
 
+  async function syncProductImage(
+    productId
+  ) {
+    const file =
+      $("image").files[0];
+
+    if (!file) {
+      return;
+    }
+
+    const signed =
+      await request(
+        `/admin-api/products/${encodeURIComponent(
+          productId
+        )}/image/presign`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+          body:
+            JSON.stringify({
+              filename:
+                file.name,
+              mime:
+                file.type ||
+                "image/jpeg"
+            })
+        }
+      );
+
+    const upload =
+      await fetch(
+        signed.upload_url,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type":
+              file.type ||
+              "image/jpeg"
+          },
+          body:
+            file
+        }
+      );
+
+    if (!upload.ok) {
+      throw new Error(
+        "Product image upload failed"
+      );
+    }
+
+    await request(
+      `/admin-api/products/${encodeURIComponent(
+        productId
+      )}/image/complete`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+        body:
+          JSON.stringify({
+            key:
+              signed.key,
+            filename:
+              file.name,
+            mime:
+              file.type ||
+              "image/jpeg"
+          })
+      }
+    );
+  }
+
+
   async function syncVariantImages(
     savedProduct
   ) {
@@ -2628,16 +2706,6 @@
     );
 
 
-    if (
-      $("image")
-        .files[0]
-    ) {
-      data.append(
-        "image",
-        $("image").files[0]
-      );
-    }
-
     $("save").disabled = true;
 
     try {
@@ -2665,6 +2733,10 @@
             }
           );
       }
+
+      await syncProductImage(
+        savedProduct.id
+      );
 
       await syncVariantImages(
         savedProduct

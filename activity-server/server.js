@@ -139,6 +139,12 @@ addColumn(
 
 addColumn(
   "products",
+  "image_key",
+  "image_key TEXT"
+);
+
+addColumn(
+  "products",
   "variants_enabled",
   "variants_enabled INTEGER NOT NULL DEFAULT 0"
 );
@@ -1462,14 +1468,15 @@ app.get(
 
 app.get(
   "/api/products/:id/image",
-  (req, res) => {
+  async (req, res) => {
     const row =
       db.prepare(
         `SELECT
            image_blob,
            image_filename,
            image_mime,
-           image_url
+           image_url,
+           image_key
          FROM products
          WHERE id = ?`
       )
@@ -1484,8 +1491,50 @@ app.get(
         .sendStatus(404);
     }
 
+    if (row.image_key) {
+      try {
+        const imageUrl =
+          await getSignedUrl(
+            r2,
+            new GetObjectCommand({
+              Bucket:
+                R2_BUCKET,
+              Key:
+                row.image_key
+            }),
+            {
+              expiresIn:
+                60 * 60
+            }
+          );
+
+        res.setHeader(
+          "Cache-Control",
+          "private,no-store"
+        );
+
+        return res.redirect(
+          302,
+          imageUrl
+        );
+
+      } catch (error) {
+        console.error(
+          "R2 product image URL error:",
+          error
+        );
+
+        return res
+          .sendStatus(502);
+      }
+    }
+
+    /*
+     * Legacy SQLite image fallback.
+     */
     if (
-      row.image_blob
+      row.image_blob &&
+      row.image_blob.length > 0
     ) {
       res.setHeader(
         "Content-Type",
@@ -1503,9 +1552,7 @@ app.get(
       );
     }
 
-    if (
-      row.image_url
-    ) {
+    if (row.image_url) {
       return res.redirect(
         row.image_url
       );

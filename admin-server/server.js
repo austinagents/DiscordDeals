@@ -93,6 +93,12 @@ addColumn(
 
 addColumn(
   "products",
+  "image_key",
+  "image_key TEXT"
+);
+
+addColumn(
+  "products",
   "variants_enabled",
   "variants_enabled INTEGER NOT NULL DEFAULT 0"
 );
@@ -1093,6 +1099,231 @@ app.put(
   }
 );
 
+
+
+/* ===============================
+
+   R2 PRODUCT IMAGE API
+
+================================ */
+
+app.post(
+  "/admin-api/products/:id/image/presign",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const productId =
+        String(req.params.id);
+
+      const product =
+        productById(productId);
+
+      if (!product) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "Product not found"
+          });
+      }
+
+      const filename =
+        String(
+          req.body.filename ||
+          "product.jpg"
+        );
+
+      const mime =
+        String(
+          req.body.mime ||
+          "image/jpeg"
+        );
+
+      if (
+        !mime.startsWith(
+          "image/"
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "File must be an image"
+          });
+      }
+
+      const rawExtension =
+        path.extname(filename)
+          .toLowerCase();
+
+      const extension =
+        /^[.][a-z0-9]{1,8}$/
+          .test(rawExtension)
+          ? rawExtension
+          : ".jpg";
+
+      const key =
+        [
+          "product-images",
+          productId,
+          `logo-${crypto.randomUUID()}${extension}`
+        ].join("/");
+
+      const uploadUrl =
+        await getSignedUrl(
+          r2,
+          new PutObjectCommand({
+            Bucket:
+              R2_BUCKET,
+            Key:
+              key,
+            ContentType:
+              mime
+          }),
+          {
+            expiresIn:
+              15 * 60
+          }
+        );
+
+      res.json({
+        key,
+        upload_url:
+          uploadUrl
+      });
+
+    } catch (error) {
+      console.error(
+        "R2 product image presign error:",
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            "Could not prepare product image upload"
+        });
+    }
+  }
+);
+
+
+app.post(
+  "/admin-api/products/:id/image/complete",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const productId =
+        String(req.params.id);
+
+      const row =
+        db.prepare(
+          `SELECT image_key
+           FROM products
+           WHERE id = ?`
+        ).get(productId);
+
+      if (!row) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "Product not found"
+          });
+      }
+
+      const key =
+        String(
+          req.body.key || ""
+        );
+
+      const requiredPrefix =
+        `product-images/${productId}/`;
+
+      if (
+        !key.startsWith(
+          requiredPrefix
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Invalid product image key"
+          });
+      }
+
+      const oldKey =
+        row.image_key;
+
+      db.prepare(`
+        UPDATE products
+        SET
+          image_blob =
+            zeroblob(0),
+          image_filename = ?,
+          image_mime = ?,
+          image_key = ?,
+          image_url = NULL,
+          updated_at =
+            CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        String(
+          req.body.filename ||
+          ""
+        ),
+        String(
+          req.body.mime ||
+          "image/jpeg"
+        ),
+        key,
+        productId
+      );
+
+      if (
+        oldKey &&
+        oldKey !== key
+      ) {
+        try {
+          await r2.send(
+            new DeleteObjectCommand({
+              Bucket:
+                R2_BUCKET,
+              Key:
+                oldKey
+            })
+          );
+        } catch (error) {
+          console.error(
+            "Could not remove replaced R2 product image:",
+            error
+          );
+        }
+      }
+
+      res.json(
+        productById(
+          productId
+        )
+      );
+
+    } catch (error) {
+      console.error(
+        "R2 product image completion error:",
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          error:
+            "Could not finish product image upload"
+        });
+    }
+  }
+);
 
 
 /* ===============================
@@ -2137,6 +2368,29 @@ app.delete(
   (req, res) => {
     const id =
       String(req.params.id);
+
+    const productMedia =
+      db.prepare(
+        `SELECT image_key
+         FROM products
+         WHERE id = ?`
+      ).get(id);
+
+    if (productMedia?.image_key) {
+      r2.send(
+        new DeleteObjectCommand({
+          Bucket:
+            R2_BUCKET,
+          Key:
+            productMedia.image_key
+        })
+      ).catch(error => {
+        console.error(
+          "Could not remove deleted R2 product image:",
+          error
+        );
+      });
+    }
 
     db.prepare(
       `DELETE FROM product_videos
