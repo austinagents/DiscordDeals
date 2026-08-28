@@ -3430,3 +3430,8 @@ html[data-discord-layout="focused"] .product-image-wrap {
   object-fit: contain !important;
   object-position: center center !important;
 }
+
+/* Product images must never resize inside their fixed slot. */
+.product-card:hover .product-image {
+  transform: none !important;
+}
