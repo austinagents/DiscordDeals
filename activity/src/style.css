@@ -3410,3 +3410,23 @@ html[data-discord-layout="focused"] .product-image-wrap {
       repeat(2, minmax(0, 1fr));
   }
 }
+
+/* =========================================================
+   MARKETPLACE PRODUCT IMAGES — ALWAYS FIT FULL IMAGE
+   Keep a stable slot at every viewport and never crop source art.
+   ========================================================= */
+
+.product-image-wrap,
+html[data-discord-layout="focused"] .product-image-wrap {
+  aspect-ratio: 16 / 10 !important;
+  overflow: hidden !important;
+  background: var(--surface-2) !important;
+}
+
+.product-image,
+.product-image.product-image--contain {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+}
