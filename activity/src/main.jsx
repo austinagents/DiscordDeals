@@ -30,6 +30,7 @@ const DEFAULT_CATEGORIES = [
   "Home",
   "Beauty",
   "Tech",
+  "Pets",
   "Other"
 ];
 

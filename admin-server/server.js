@@ -133,6 +133,7 @@ db.prepare(`
     "Home",
     "Beauty",
     "Tech",
+    "Pets",
     "Other"
   ])
 );
