@@ -2710,9 +2710,18 @@ async function repostPublicLauncher(
 }
 
 
+let announceNewDealsRunning = false;
+
 async function announceNewDeals() {
-  const products =
-    unannouncedActiveProducts();
+  if (announceNewDealsRunning) {
+    return;
+  }
+
+  announceNewDealsRunning = true;
+
+  try {
+    const products =
+      unannouncedActiveProducts();
 
   if (!products.length) {
     return;
@@ -2760,6 +2769,9 @@ async function announceNewDeals() {
     console.log(
       `✓ Announced new deal: ${product.name}`
     );
+  }
+  } finally {
+    announceNewDealsRunning = false;
   }
 }
 
