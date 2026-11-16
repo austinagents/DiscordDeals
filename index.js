@@ -2100,6 +2100,9 @@ let requestDashboardProductId =
 let requestDashboardView =
   "pending";
 
+const REQUEST_DASHBOARD_PAGE_SIZE = 5;
+let requestDashboardPage = 0;
+
 
 function requestDashboardRows() {
   return db
@@ -2139,9 +2142,8 @@ function requestDashboardRows() {
         p.brand
 
       ORDER BY
-        datetime(last_request_at) DESC
-
-      LIMIT 5
+        datetime(last_request_at) DESC,
+        p.id DESC
     `)
     .all();
 }
@@ -2414,11 +2416,31 @@ function requestSurface() {
 
 
 function buildRequestDashboard() {
-  const rows =
+  const allRows =
     requestDashboardRows();
 
+  const pageCount =
+    Math.max(
+      1,
+      Math.ceil(
+        allRows.length / REQUEST_DASHBOARD_PAGE_SIZE
+      )
+    );
+
+  requestDashboardPage =
+    Math.min(
+      Math.max(0, requestDashboardPage),
+      pageCount - 1
+    );
+
+  const rows =
+    allRows.slice(
+      requestDashboardPage * REQUEST_DASHBOARD_PAGE_SIZE,
+      (requestDashboardPage + 1) * REQUEST_DASHBOARD_PAGE_SIZE
+    );
+
   const totalRequests =
-    rows.reduce(
+    allRows.reduce(
       (sum, row) =>
         sum +
         Number(
@@ -2428,7 +2450,7 @@ function buildRequestDashboard() {
     );
 
   const totalNew =
-    rows.reduce(
+    allRows.reduce(
       (sum, row) =>
         sum +
         Number(
@@ -2453,6 +2475,9 @@ function buildRequestDashboard() {
               totalRequests
                 ? `**${totalRequests} requests** • ${totalNew} new`
                 : "No product requests yet.",
+              ...(pageCount > 1
+                ? [`-# Page ${requestDashboardPage + 1} of ${pageCount} • ${allRows.length} deals with requests`]
+                : []),
               "",
               "-# New requests automatically appear here. Mark a product sent after you send its current batch."
             ].join("\n")
@@ -2558,6 +2583,23 @@ function buildRequestDashboard() {
         );
     }
   );
+
+  if (pageCount > 1) {
+    container.addActionRowComponents(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`requests:page:${requestDashboardPage - 1}`)
+          .setLabel("← Previous")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(requestDashboardPage === 0),
+        new ButtonBuilder()
+          .setCustomId(`requests:page:${requestDashboardPage + 1}`)
+          .setLabel("Next →")
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(requestDashboardPage >= pageCount - 1)
+      )
+    );
+  }
 
   return v2([
     container
@@ -2934,6 +2976,47 @@ client.on(
 
 
     try {
+
+      /* ===================================================
+         REQUEST DASHBOARD — PAGE NAVIGATION
+      =================================================== */
+
+      if (
+        interaction.isButton() &&
+        interaction.customId.startsWith(
+          "requests:page:"
+        )
+      ) {
+        if (!adminOnly(interaction)) {
+          return;
+        }
+
+        const nextPage = Number(
+          interaction.customId.slice(
+            "requests:page:".length
+          )
+        );
+
+        if (
+          !Number.isSafeInteger(nextPage) ||
+          nextPage < 0
+        ) {
+          await interaction.reply({
+            content: "Invalid dashboard page.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        await interaction.deferUpdate();
+
+        requestDashboardPage = nextPage;
+        requestDashboardProductId = null;
+        requestDashboardView = "pending";
+
+        await refreshAdmin();
+        return;
+      }
 
       /* ===================================================
          REQUEST DASHBOARD — VIEW PRODUCT REQUESTS
